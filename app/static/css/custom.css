@@ -1,0 +1,79 @@
+/* Variáveis de identidade visual da Mi7 */
+/* Substitua os valores abaixo com as cores reais da Mi7 */
+
+:root {
+    --color-primary: #1a1a2e;        /* Cor principal — troque pela da Mi7 */
+    --color-primary-light: #16213e;
+    --color-accent: #0f3460;         /* Destaque — troque pela da Mi7 */
+    --color-accent-vivid: #e94560;   /* Acento vívido para métricas críticas */
+    --color-bg: #0a0a14;             /* Fundo geral */
+    --color-surface: #12122a;        /* Cards e superfícies */
+    --color-surface-2: #1c1c3a;      /* Superfícies secundárias */
+    --color-text-primary: #e8e8f0;   /* Texto principal */
+    --color-text-secondary: #8888aa; /* Texto secundário */
+    --color-success: #00c896;        /* Mi7 / positivo */
+    --color-danger: #e94560;         /* Concorrente / negativo */
+    --color-border: rgba(255,255,255,0.08);
+}
+
+/* Transições suaves globais */
+* {
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Scrollbar customizada */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-accent); border-radius: 3px; }
+
+/* Efeito de brilho nos cards de impacto */
+.impact-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.impact-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(
+        circle at center,
+        rgba(233, 69, 96, 0.05) 0%,
+        transparent 60%
+    );
+    pointer-events: none;
+}
+
+/* Animação de entrada para cards */
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+    animation: slideUp 0.4s ease forwards;
+}
+
+.animate-slide-up:nth-child(1) { animation-delay: 0.1s; }
+.animate-slide-up:nth-child(2) { animation-delay: 0.2s; }
+.animate-slide-up:nth-child(3) { animation-delay: 0.3s; }
+.animate-slide-up:nth-child(4) { animation-delay: 0.4s; }
+
+/* Número grande de impacto */
+.impact-number {
+    font-size: 3.5rem;
+    font-weight: 900;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--color-accent-vivid), #ff8c42);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Tabela estilizada */
+.data-table tr:hover td {
+    background-color: rgba(255,255,255,0.03);
+}

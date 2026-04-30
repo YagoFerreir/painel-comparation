@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inteligência Competitiva{% endblock %} — Mi7</title>
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'mi7-bg': 'var(--color-bg)',
+                        'mi7-surface': 'var(--color-surface)',
+                        'mi7-accent': 'var(--color-accent)',
+                        'mi7-vivid': 'var(--color-accent-vivid)',
+                        'mi7-success': 'var(--color-success)',
+                        'mi7-danger': 'var(--color-danger)',
+                        'mi7-text': 'var(--color-text-primary)',
+                        'mi7-muted': 'var(--color-text-secondary)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Alpine.js via CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Chart.js via CDN (para os gráficos) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- CSS customizado da Mi7 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+
+    <style>
+        body {
+            background-color: var(--color-bg);
+            color: var(--color-text-primary);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="h-full antialiased">
+
+    <!-- Navbar -->
+    {% if session.user %}
+    <nav class="border-b sticky top-0 z-50"
+         style="background-color: var(--color-surface); border-color: var(--color-border);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- Logo -->
+                <div class="flex items-center gap-3">
+                    <img src="{{ url_for('static', filename='img/logo_mi7.png') }}"
+                         alt="Mi7"
+                         class="h-8 w-auto"
+                         onerror="this.style.display='none'">
+                    <span class="font-bold text-lg tracking-tight" style="color: var(--color-text-primary);">
+                        Inteligência Competitiva
+                    </span>
+                </div>
+
+                <!-- Usuário logado -->
+                <div class="flex items-center gap-4">
+                    <span class="text-sm" style="color: var(--color-text-secondary);">
+                        {{ session.user.name }}
+                    </span>
+                    <a href="{{ url_for('auth.logout') }}"
+                       class="text-sm px-3 py-1.5 rounded-md border transition-all hover:opacity-80"
+                       style="border-color: var(--color-border); color: var(--color-text-secondary);">
+                        Sair
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+            {% for category, message in messages %}
+            <div x-data="{ show: true }"
+                 x-show="show"
+                 x-transition
+                 class="flex items-center justify-between p-3 rounded-lg mb-2 text-sm"
+                 style="background-color: var(--color-surface-2);"
+                 :class="{
+                     'border-l-4 border-green-500': '{{ category }}' === 'success',
+                     'border-l-4 border-yellow-500': '{{ category }}' === 'warning',
+                     'border-l-4 border-red-500': '{{ category }}' === 'error',
+                     'border-l-4 border-blue-500': '{{ category }}' === 'info'
+                 }">
+                <span>{{ message }}</span>
+                <button @click="show = false" class="ml-4 opacity-50 hover:opacity-100">✕</button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Conteúdo Principal -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Scripts adicionais -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

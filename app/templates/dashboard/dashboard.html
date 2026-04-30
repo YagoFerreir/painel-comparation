@@ -1,0 +1,348 @@
+{% extends 'base.html' %}
+
+{% block title %}Painel Competitivo{% endblock %}
+
+{% block content %}
+
+<!-- Cabeçalho da Página -->
+<div class="mb-8">
+    <h2 class="text-3xl font-black tracking-tight" style="color: var(--color-text-primary);">
+        Análise Competitiva
+    </h2>
+    <p class="mt-1 text-sm" style="color: var(--color-text-secondary);">
+        Comprove em tempo real a qualidade superior dos dados Mi7
+    </p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SEÇÃO 1: FORMULÁRIO DE ANÁLISE                 -->
+<!-- ══════════════════════════════════════════════ -->
+<div class="rounded-2xl p-6 mb-8"
+     style="background-color: var(--color-surface); border: 1px solid var(--color-border);"
+     x-data="{ fileName: '', dragging: false }">
+
+    <h3 class="text-base font-semibold mb-5" style="color: var(--color-text-primary);">
+        📂 Configurar Nova Análise
+    </h3>
+
+    <form method="POST"
+          enctype="multipart/form-data"
+          action="{{ url_for('dashboard.dashboard') }}"
+          x-data="{ loading: false }"
+          @submit="loading = true">
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+
+            <!-- Campo: Nome do Concorrente -->
+            <div class="md:col-span-1">
+                <label class="block text-xs font-medium mb-2 uppercase tracking-wider"
+                       style="color: var(--color-text-secondary);">
+                    Nome do Concorrente
+                </label>
+
+                <!-- Sugestões de concorrentes conhecidos -->
+                {% if results and results.available_sources %}
+                <select name="competitor_name"
+                        class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                        style="background-color: var(--color-surface-2);
+                               border: 1px solid var(--color-border);
+                               color: var(--color-text-primary);">
+                    <option value="">Selecione ou digite...</option>
+                    {% for source in results.available_sources %}
+                    <option value="{{ source }}" {% if source == results.competitor_name %}selected{% endif %}>
+                        {{ source }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="text"
+                       name="competitor_name"
+                       required
+                       placeholder="Ex: ClickSuper, InfoPrice..."
+                       list="competitor-suggestions"
+                       class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                       style="background-color: var(--color-surface-2);
+                              border: 1px solid var(--color-border);
+                              color: var(--color-text-primary);"
+                       value="{{ results.competitor_name if results else '' }}">
+                <datalist id="competitor-suggestions">
+                    <option value="ClickSuper">
+                    <option value="InfoPrice">
+                    <option value="Hiper">
+                    <option value="Gera Supermercados">
+                </datalist>
+                {% endif %}
+            </div>
+
+            <!-- Campo: Upload do JSON (Drag and Drop) -->
+            <div class="md:col-span-1">
+                <label class="block text-xs font-medium mb-2 uppercase tracking-wider"
+                       style="color: var(--color-text-secondary);">
+                    Arquivo de Coleta (.json)
+                </label>
+                <label class="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all"
+                       :class="dragging ? 'ring-2' : ''"
+                       style="background-color: var(--color-surface-2); border: 1px solid var(--color-border);"
+                       @dragover.prevent="dragging = true"
+                       @dragleave.prevent="dragging = false"
+                       @drop.prevent="
+                           dragging = false;
+                           let file = $event.dataTransfer.files[0];
+                           if (file) { fileName = file.name; $refs.fileInput.files = $event.dataTransfer.files; }
+                       ">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                         style="color: var(--color-text-secondary);">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <span class="text-sm truncate" style="color: var(--color-text-secondary);"
+                          x-text="fileName || 'Clique ou arraste o JSON'"></span>
+                    <input type="file"
+                           name="json_file"
+                           accept=".json"
+                           required
+                           class="hidden"
+                           x-ref="fileInput"
+                           @change="fileName = $event.target.files[0]?.name || ''">
+                </label>
+            </div>
+
+            <!-- Botão de Análise -->
+            <div class="md:col-span-1">
+                <button type="submit"
+                        :disabled="loading"
+                        class="w-full py-3 px-6 rounded-xl font-bold text-sm transition-all
+                               hover:opacity-90 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                        style="background-color: var(--color-accent-vivid); color: white;">
+                    <span x-show="!loading">⚡ Analisar Agora</span>
+                    <span x-show="loading" class="flex items-center gap-2">
+                        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        Processando...
+                    </span>
+                </button>
+            </div>
+
+        </div>
+    </form>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SEÇÃO 2: RESULTADOS (só aparece após análise)  -->
+<!-- ══════════════════════════════════════════════ -->
+{% if results %}
+
+<!-- Cards de Impacto -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+
+    <!-- Card 1: Índice de Dados Falsos (destaque máximo) -->
+    <div class="rounded-2xl p-6 impact-card animate-slide-up"
+         style="background: linear-gradient(135deg, var(--color-surface), var(--color-surface-2));
+                border: 1px solid var(--color-border); grid-column: span 1;">
+        <p class="text-xs uppercase tracking-widest font-semibold mb-2"
+           style="color: var(--color-danger);">
+            🚨 Índice de Dados Falsos
+        </p>
+        <div class="impact-number">{{ results.competitor.fake_data_index }}%</div>
+        <p class="text-xs mt-2" style="color: var(--color-text-secondary);">
+            dos dados do {{ results.competitor_name }} são duplicatas
+        </p>
+    </div>
+
+    <!-- Card 2: Duplicatas Absolutas -->
+    <div class="rounded-2xl p-6 animate-slide-up"
+         style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+        <p class="text-xs uppercase tracking-widest font-semibold mb-2"
+           style="color: var(--color-text-secondary);">
+            Registros Repetidos
+        </p>
+        <div class="text-4xl font-black" style="color: var(--color-danger);">
+            {{ "{:,}".format(results.competitor.duplicates) }}
+        </div>
+        <p class="text-xs mt-2" style="color: var(--color-text-secondary);">
+            entradas duplicadas em {{ results.competitor_name }}
+        </p>
+    </div>
+
+    <!-- Card 3: Volume Único Mi7 -->
+    <div class="rounded-2xl p-6 animate-slide-up"
+         style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+        <p class="text-xs uppercase tracking-widest font-semibold mb-2"
+           style="color: var(--color-success);">
+            Mi7 — Itens Únicos
+        </p>
+        <div class="text-4xl font-black" style="color: var(--color-success);">
+            {{ "{:,}".format(results.mi7.unique) }}
+        </div>
+        <p class="text-xs mt-2" style="color: var(--color-text-secondary);">
+            de {{ "{:,}".format(results.mi7.total) }} registros totais
+        </p>
+    </div>
+
+    <!-- Card 4: Volume Único Concorrente -->
+    <div class="rounded-2xl p-6 animate-slide-up"
+         style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+        <p class="text-xs uppercase tracking-widest font-semibold mb-2"
+           style="color: var(--color-text-secondary);">
+            {{ results.competitor_name }} — Itens Únicos
+        </p>
+        <div class="text-4xl font-black" style="color: var(--color-text-primary);">
+            {{ "{:,}".format(results.competitor.unique) }}
+        </div>
+        <p class="text-xs mt-2" style="color: var(--color-text-secondary);">
+            de {{ "{:,}".format(results.competitor.total) }} registros totais
+        </p>
+    </div>
+
+</div>
+
+<!-- Gráfico + Tabela lado a lado -->
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
+
+    <!-- Gráfico de Barras (2/5) -->
+    <div class="lg:col-span-2 rounded-2xl p-6"
+         style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+        <h3 class="text-sm font-semibold mb-4" style="color: var(--color-text-primary);">
+            Comparativo de Volume
+        </h3>
+        <canvas id="comparisonChart" height="280"></canvas>
+    </div>
+
+    <!-- Tabela "Prova do Crime" (3/5) -->
+    <div class="lg:col-span-3 rounded-2xl p-6"
+         style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">
+                🔍 Prova do Crime — Top 20 Produtos Mais Repetidos
+            </h3>
+            <span class="text-xs px-2 py-1 rounded-full"
+                  style="background-color: var(--color-surface-2); color: var(--color-danger);">
+                {{ results.competitor_name }}
+            </span>
+        </div>
+
+        <div class="overflow-x-auto" style="max-height: 340px; overflow-y: auto;">
+            <table class="w-full text-xs data-table">
+                <thead class="sticky top-0" style="background-color: var(--color-surface);">
+                    <tr>
+                        <th class="text-left py-2 px-3 font-semibold uppercase tracking-wider"
+                            style="color: var(--color-text-secondary);">#</th>
+                        <th class="text-left py-2 px-3 font-semibold uppercase tracking-wider"
+                            style="color: var(--color-text-secondary);">EAN / GTIN</th>
+                        <th class="text-left py-2 px-3 font-semibold uppercase tracking-wider"
+                            style="color: var(--color-text-secondary);">Produto</th>
+                        <th class="text-right py-2 px-3 font-semibold uppercase tracking-wider"
+                            style="color: var(--color-text-secondary);">Repetições</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in results.crime_table %}
+                    <tr class="border-t" style="border-color: var(--color-border);">
+                        <td class="py-2.5 px-3" style="color: var(--color-text-secondary);">
+                            {{ loop.index }}
+                        </td>
+                        <td class="py-2.5 px-3 font-mono" style="color: var(--color-text-primary);">
+                            {{ row.ean }}
+                        </td>
+                        <td class="py-2.5 px-3" style="color: var(--color-text-secondary);">
+                            {{ row.product_name | truncate(35) }}
+                        </td>
+                        <td class="py-2.5 px-3 text-right">
+                            <span class="font-bold px-2 py-0.5 rounded-full text-xs"
+                                  style="background-color: rgba(233,69,96,0.15); color: var(--color-danger);">
+                                {{ row.occurrences }}x
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+{% else %}
+<!-- Estado vazio (antes da primeira análise) -->
+<div class="text-center py-20 rounded-2xl"
+     style="background-color: var(--color-surface); border: 1px dashed var(--color-border);">
+    <div class="text-5xl mb-4">📊</div>
+    <h3 class="text-lg font-semibold mb-2" style="color: var(--color-text-primary);">
+        Pronto para analisar
+    </h3>
+    <p class="text-sm" style="color: var(--color-text-secondary);">
+        Informe o concorrente e faça o upload do JSON de coleta para gerar o relatório.
+    </p>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if results %}
+<script>
+    // Dados do servidor (injetados via Jinja2)
+    const chartData = {{ results.chart_data | tojson }};
+
+    const ctx = document.getElementById('comparisonChart').getContext('2d');
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: chartData.labels,
+            datasets: [
+                {
+                    label: 'Total (bruto)',
+                    data: chartData.total,
+                    backgroundColor: [
+                        'rgba(0, 200, 150, 0.3)',
+                        'rgba(233, 69, 96, 0.3)'
+                    ],
+                    borderColor: [
+                        'rgba(0, 200, 150, 1)',
+                        'rgba(233, 69, 96, 1)'
+                    ],
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                },
+                {
+                    label: 'Únicos (real)',
+                    data: chartData.unique,
+                    backgroundColor: [
+                        'rgba(0, 200, 150, 0.8)',
+                        'rgba(233, 69, 96, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgba(0, 200, 150, 1)',
+                        'rgba(233, 69, 96, 1)'
+                    ],
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: 'rgba(232, 232, 240, 0.7)', font: { size: 11 } }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: { color: 'rgba(232, 232, 240, 0.7)' }
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: { color: 'rgba(232, 232, 240, 0.7)' }
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}
