@@ -157,30 +157,17 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
 
 @st.cache_data(show_spinner="Buscando catálogo de produtos na API…", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
-    """
-    Consulta a API do cliente para obter o catálogo de produtos.
-    Segurança:
-    - URL e token lidos EXCLUSIVAMENTE de st.secrets (nunca hardcoded).
-    - Em caso de erro, retorna None (análise continua sem nomes de produto).
-    - Nenhum dado bruto da API é logado no terminal.
-    Retorna um DataFrame com colunas [codigoProduto, descricao] ou None.
-    """
-    # Verifica se as credenciais existem antes de qualquer request
+    # 1. Lê a URL, usuário e senha que você colocou no painel do Streamlit
     try:
-        api_url   = st.secrets["irani"]["api_url"]
-        api_token = st.secrets["irani"]["api_token"]
+        api_url  = st.secrets["clientx"]["api_url"]
+        api_user = st.secrets["clientx"]["api_user"]
+        api_pass = st.secrets["clientx"]["api_pass"]
     except Exception:
-        # Credenciais não configuradas — comportamento esperado em dev/demo
         return None
 
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
     try:
-        resp = requests.get(api_url, headers=headers, timeout=API_TIMEOUT)
+        # 2. Usa auth=(usuario, senha) em vez do Header com Token
+        resp = requests.get(api_url, auth=(api_user, api_pass), timeout=API_TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
 
@@ -192,7 +179,7 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
             df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
             return df_prod
         else:
-            st.info("ℹ️ Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
+            st.info("Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
             return None
 
     except Exception:
@@ -324,9 +311,10 @@ with st.sidebar:
     st.markdown("---")
 
     # Bloco robusto de validação de segredos
+   # Bloco robusto de validação de segredos
     api_configurada = False
     try:
-        if "irani" in st.secrets and "api_token" in st.secrets["irani"]:
+        if "clientx" in st.secrets and "api_user" in st.secrets["clientx"]:
             api_configurada = True
     except Exception:
         api_configurada = False
@@ -335,11 +323,11 @@ with st.sidebar:
         st.success("API de produtos configurada.")
     else:
         st.info(
-            "API de produtos não configurada."
-            "Configure, para enriquecer os resultados com nomes de produtos."
+            "API de produtos não configurada.\n\n"
+            "Configure os dados em Secrets para enriquecer com nomes."
         )
 
-    analisar = st.button("▶ Executar Análise", type="primary", use_container_width=True)
+    analisar = st.button("Executar Análise", type="primary", use_container_width=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
