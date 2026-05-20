@@ -185,7 +185,8 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
         payload = resp.json()
 
         produtos = payload.get("produtos", [])
-        if not whitespaces_only := not produtos:
+        
+        if produtos:
             df_prod = pd.DataFrame(produtos)[["codigo", "descricao"]].copy()
             df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
             df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
