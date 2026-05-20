@@ -228,7 +228,7 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     if df_catalogo is not None:
         df = df.merge(df_catalogo, on="codigoProduto", how="left")
         df["descricao"] = df["descricao"].fillna("Não encontrado")
-    else:
+  
       except Exception as e:
         # Exibe o erro real na tela do Streamlit para debugar
         st.error(f"🚨 ERRO NA API: {e}") 
