@@ -179,7 +179,9 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
         resp_auth.raise_for_status()
         
         # Extrai o crachá (token) gigante gerado por eles
-        token = resp_auth.json().get("token")
+        dados_auth = resp_auth.json()
+        gaveta_response = dados_auth.get("response", {})
+        token = gaveta_response.get("token")
         
         if not token:
             st.error("🚨 Login feito, mas a API não devolveu o Token.")
@@ -198,7 +200,9 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
         payload = resp_prod.json()
 
         produtos = payload.get("produtos", [])
-        
+        if not produtos and "response" in payload:
+            produtos = payload.get("response", {}).get("produtos", [])
+          
         if produtos:
             df_prod = pd.DataFrame(produtos)[["codigo", "descricao"]].copy()
             df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
