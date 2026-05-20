@@ -255,7 +255,7 @@ with st.sidebar:
     st.image(
         "https://i.imgur.com/YOUR_LOGO.png",  # Substitua pelo logo Mi7 ou remova
         use_column_width=True,
-    ) if False else st.markdown("## 🔍 Mi7 Intelligence")
+    ) st.markdown("## Mi7 Intelligence")
     st.markdown("---")
     st.markdown("### 📂 1. Upload dos Arquivos")
     arquivos_upados = st.file_uploader(
