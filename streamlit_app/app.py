@@ -229,7 +229,10 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
         df = df.merge(df_catalogo, on="codigoProduto", how="left")
         df["descricao"] = df["descricao"].fillna("Não encontrado")
     else:
-        df["descricao"] = "Sem catálogo"
+      except Exception as e:
+        # Exibe o erro real na tela do Streamlit para debugar
+        st.error(f"🚨 ERRO NA API: {e}") 
+        return None
 
     # ── Separação Mi7 vs Concorrente ─────────────────────────────────────────
     df_mi7  = df[df["source"].str.contains("Mi7", case=False, na=False)].copy()
