@@ -335,9 +335,8 @@ with st.sidebar:
         st.success("API de produtos configurada.")
     else:
         st.info(
-            "API de produtos não configurada.\n\n"
-            "Configure `irani.api_url` e `irani.api_token` em Secrets "
-            "para enriquecer os resultados com nomes de produtos."
+            "API de produtos não configurada."
+            "Configure, para enriquecer os resultados com nomes de produtos."
         )
 
     analisar = st.button("▶ Executar Análise", type="primary", use_container_width=True)
