@@ -155,9 +155,8 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
 # FUNÇÃO AUXILIAR — API DO CLIENTE (SEGURA)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Autenticando e buscando catálogo na API…", ttl=3600)
+@st.cache_data(show_spinner="Baixando catálogo completo (são várias páginas, leva uns 30 seg na 1ª vez)...", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
-    # 1. Lê a URL de produtos, usuário e senha que estão salvos nos Secrets
     try:
         api_url  = st.secrets["clientx"]["api_url"]
         api_user = st.secrets["clientx"]["api_user"]
@@ -165,28 +164,75 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
     except Exception:
         return None
 
-    # --- ETAPA 1: LOGIN PARA PEGAR O TOKEN ---
-    # Pegamos a raiz do link dinamicamente e apontamos para a rota /v1.1/auth que o manual pediu
     base_url = api_url.split("/v1.2")[0]
     auth_url = f"{base_url}/v1.1/auth"
     
     try:
-        auth_payload = {"usuario": api_user, "senha": api_pass}
-        headers_auth = {"Content-type": "application/json"}
-        
-        # Bate na porta de autenticação
-        resp_auth = requests.post(auth_url, json=auth_payload, headers=headers_auth, timeout=API_TIMEOUT)
+        # --- 1. PEGA O TOKEN ---
+        resp_auth = requests.post(
+            auth_url, 
+            json={"usuario": api_user, "senha": api_pass}, 
+            headers={"Content-type": "application/json"}, 
+            timeout=API_TIMEOUT
+        )
         resp_auth.raise_for_status()
-        
-        # Extrai o crachá (token) gigante gerado por eles
-        dados_auth = resp_auth.json()
-        gaveta_response = dados_auth.get("response", {})
-        token = gaveta_response.get("token")
+        token = resp_auth.json().get("response", {}).get("token")
         
         if not token:
-            st.error("🚨 Login feito, mas a API não devolveu o Token.")
+            st.error("🚨 Login feito, mas sem token retornado.")
             return None
 
+        # --- 2. LOOP DE PAGINAÇÃO PARA BAIXAR TUDO ---
+        headers_produtos = {"Content-type": "application/json", "token": token}
+        todos_produtos = []
+        pagina = 0
+        
+        while True:
+            # Substitui o "0" da URL original pela página atual do loop
+            url_paginada = api_url.replace("/0/", f"/{pagina}/")
+            
+            resp_prod = requests.get(url_paginada, headers=headers_produtos, timeout=API_TIMEOUT)
+            
+            # Se a API der erro ou parar de responder, interrompe o loop
+            if resp_prod.status_code != 200:
+                break
+                
+            payload = resp_prod.json()
+            
+            # Extrai os produtos da gaveta raiz ou da gaveta response
+            produtos_pagina = payload.get("produtos", [])
+            if not produtos_pagina and "response" in payload:
+                produtos_pagina = payload.get("response", {}).get("produtos", [])
+            
+            # Se a página vier vazia, significa que o catálogo acabou!
+            if not produtos_pagina:
+                break
+                
+            todos_produtos.extend(produtos_pagina)
+            
+            # A API entrega de 200 em 200. Se vier menos que isso, é a última página.
+            if len(produtos_pagina) < 200:
+                break
+                
+            pagina += 1
+            
+            # Trava de segurança para evitar loops infinitos (ex: max 500 páginas = 100.000 produtos)
+            if pagina > 500:
+                break
+
+        # --- 3. FINALIZA O DATAFRAME ---
+        if todos_produtos:
+            df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
+            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
+            return df_prod
+        else:
+            st.info("Catálogo de produtos retornou vazio.")
+            return None
+
+    except Exception as e:
+        st.error(f"🚨 ERRO NA API: {e}")
+        return None
         # --- ETAPA 2: BUSCAR OS PRODUTOS COM O TOKEN ---
         # Exatamente como o manual do clientx pediu: "enviando o atributo 'token'"
         headers_produtos = {
