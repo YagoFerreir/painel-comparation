@@ -35,7 +35,7 @@ API_TIMEOUT = 15
 
 st.set_page_config(
     page_title="Mi7 Intelligence · Análise de Concorrentes",
-    page_icon="🔍",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -104,7 +104,7 @@ def carregar_multiplos_jsons(arquivos_bytes: list[bytes]) -> pd.DataFrame:
     if erros:
         # Exibe avisos sem expor estrutura interna da API
         for msg in erros:
-            st.warning(f"⚠️ {msg}", icon="⚠️")
+            st.warning(f"⚠️ {msg}")
 
     if not frames:
         raise ValueError("Nenhum dado válido encontrado nos arquivos enviados.")
@@ -295,9 +295,9 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("## 🔍 Mi7 Intelligence")
+    st.markdown("## Mi7 Intelligence")
     st.markdown("---")
-    st.markdown("### 📂 1. Upload dos Arquivos")
+    st.markdown("### 1. Upload dos Arquivos")
 
     arquivos_upados = st.file_uploader(
         label="Selecione um ou mais arquivos JSON",
@@ -306,7 +306,7 @@ with st.sidebar:
         help="Os arquivos devem conter a estrutura: response → pesquisas",
     )
 
-    st.markdown("### 📅 2. Filtro de Data")
+    st.markdown("### 2. Filtro de Data")
     usar_filtro_data = st.checkbox("Ativar filtro de data", value=False)
 
     # Os seletores de data são desabilitados até o filtro ser ativado
@@ -314,7 +314,7 @@ with st.sidebar:
     data_inicio = col_d1.date_input("De", key="data_inicio", disabled=not usar_filtro_data)
     data_fim    = col_d2.date_input("Até", key="data_fim", disabled=not usar_filtro_data)
 
-    st.markdown("### 🏢 3. Concorrente Alvo")
+    st.markdown("### 3. Concorrente Alvo")
     nome_concorrente = st.text_input(
         "Nome do concorrente",
         value="ClickSuper",
@@ -332,13 +332,12 @@ with st.sidebar:
         api_configurada = False
 
     if api_configurada:
-        st.success("✅ API de produtos configurada.", icon="🔗")
+        st.success("API de produtos configurada.")
     else:
         st.info(
-            "ℹ️ API de produtos não configurada.\n\n"
+            "API de produtos não configurada.\n\n"
             "Configure `irani.api_url` e `irani.api_token` em Secrets "
-            "para enriquecer os resultados com nomes de produtos.",
-            icon="🔑",
+            "para enriquecer os resultados com nomes de produtos."
         )
 
     analisar = st.button("▶ Executar Análise", type="primary", use_container_width=True)
@@ -348,18 +347,17 @@ with st.sidebar:
 # INTERFACE — ÁREA PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────────
 
-st.title("🔍 Mi7 Intelligence — Análise de Concorrentes")
+st.title("Mi7 Intelligence — Análise de Concorrentes")
 st.caption("Ferramenta interna para detecção de inflação de dados por coletores terceiros.")
 
 if not arquivos_upados:
     st.info(
-        "👈 Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar.",
-        icon="📂",
+        "Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar."
     )
     st.stop()
 
 if not analisar:
-    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.", icon="⚙️")
+    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.")
     st.stop()
 
 # ── Carregamento e concatenação ───────────────────────────────────────────────
@@ -372,10 +370,8 @@ with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
         st.stop()
 
 st.success(
-    f"✅ {len(arquivos_upados)} arquivo(s) carregado(s) · "
-    f"**{len(df_bruto):,}** registros totais antes do filtro.",
-    icon="📦",
-)
+    f" {len(arquivos_upados)} arquivo(s) carregado(s) · "
+    f"**{len(df_bruto):,}** registros totais antes do filtro.")
 
 # ── Filtro de data ────────────────────────────────────────────────────────────
 df_filtrado = df_bruto.copy()
@@ -400,10 +396,8 @@ if usar_filtro_data:
             st.stop()
 
         st.info(
-            f"📅 Filtro applied: **{data_inicio}** até **{data_fim}** · "
-            f"**{len(df_filtrado):,}** registros restantes.",
-            icon="🗓️",
-        )
+            f"Filtro applied: **{data_inicio}** até **{data_fim}** · "
+            f"**{len(df_filtrado):,}** registros restantes.")
 
 # ── Execução da análise ───────────────────────────────────────────────────────
 with st.spinner("Executando análise competitiva…"):
@@ -415,7 +409,7 @@ with st.spinner("Executando análise competitiva…"):
 
 # ── KPIs ──────────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("📊 Painel de Métricas")
+st.subheader("Painel de Métricas")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -424,7 +418,7 @@ col2.metric("Produtos Únicos Mi7",  f"{resultado['mi7_unique']:,}")
 col3.metric(f"Registros {nome_concorrente}", f"{resultado['comp_total']:,}")
 col4.metric(f"Únicos {nome_concorrente}",    f"{resultado['comp_unique']:,}")
 col5.metric(
-    "🚨 Índice de Fraude",
+    "Índice de Fraude",
     f"{resultado['indice_fraude']}%",
     delta=f"+{resultado['comp_dup']:,} duplicatas",
     delta_color="inverse",
@@ -432,7 +426,7 @@ col5.metric(
 
 # ── Gráfico comparativo ───────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("📈 Total vs. Únicos por Empresa")
+st.subheader("Total vs. Únicos por Empresa")
 
 df_chart = pd.DataFrame({
     "Empresa": ["Mi7", "Mi7", nome_concorrente, nome_concorrente],
@@ -452,7 +446,7 @@ st.bar_chart(
 
 # ── Prova do Crime ────────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("🚨 Prova do Crime — Top 20 Produtos Mais Repetidos")
+st.subheader("Top 20 Produtos Mais Repetidos")
 st.caption(
     f"Produtos que o coletor **{nome_concorrente}** mais repetiu no período. "
     "Alta repetição indica inflação artificial de volume."
@@ -474,23 +468,23 @@ st.dataframe(
 
 # ── Exportar resultado ────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("⬇️ Exportar Dados")
+st.subheader("Exportar Dados")
 
 col_exp1, col_exp2 = st.columns(2)
 
 with col_exp1:
     csv_prova = resultado["prova"].to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 Baixar Prova do Crime (.csv)",
+        label="Baixar Resultados (.csv)",
         data=csv_prova,
-        file_name=f"prova_do_crime_{nome_concorrente}.csv",
+        file_name=f"relatorio_{nome_concorrente}.csv",
         mime="text/csv",
     )
 
 with col_exp2:
     csv_comp = resultado["df_comp"].to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 Baixar Todos os Registros do Concorrente (.csv)",
+        label="Baixar Todos os Registros do Concorrente (.csv)",
         data=csv_comp,
         file_name=f"registros_{nome_concorrente}.csv",
         mime="text/csv",
