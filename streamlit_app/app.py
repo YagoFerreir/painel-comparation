@@ -17,7 +17,7 @@ import io
 import streamlit as st
 import pandas as pd
 import requests
-
+import concurrent.futures
 # ──────────────────────────────────────────────────────────────────────────────
 # CONSTANTES DE NEGÓCIO
 # ──────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ API_TIMEOUT = 15
 
 st.set_page_config(
     page_title="Mi7 Intelligence · Análise de Concorrentes",
-    page_icon="🔍",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -104,7 +104,7 @@ def carregar_multiplos_jsons(arquivos_bytes: list[bytes]) -> pd.DataFrame:
     if erros:
         # Exibe avisos sem expor estrutura interna da API
         for msg in erros:
-            st.warning(f"⚠️ {msg}", icon="⚠️")
+            st.warning(f"⚠️ {msg}")
 
     if not frames:
         raise ValueError("Nenhum dado válido encontrado nos arquivos enviados.")
@@ -155,57 +155,155 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
 # FUNÇÃO AUXILIAR — API DO CLIENTE (SEGURA)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Buscando catálogo de produtos na API…", ttl=3600)
+@st.cache_data(show_spinner="Baixando catálogo completo (são várias páginas, leva uns 30 seg na 1ª vez)...", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
-    """
-    Consulta a API do cliente para obter o catálogo de produtos.
-
-    Segurança:
-    - URL e token lidos EXCLUSIVAMENTE de st.secrets (nunca hardcoded).
-    - Em caso de erro, retorna None (análise continua sem nomes de produto).
-    - Nenhum dado bruto da API é logado no terminal.
-
-    Retorna um DataFrame com colunas [codigoProduto, descricao] ou None.
-    """
-    # Verifica se as credenciais existem antes de qualquer request
     try:
-        api_url   = st.secrets["irani"]["api_url"]
-        api_token = st.secrets["irani"]["api_token"]
-    except (KeyError, st.errors.StreamlitAPIException):
-        # Credenciais não configuradas — comportamento esperado em dev/demo
+        api_url  = st.secrets["clientx"]["api_url"]
+        api_user = st.secrets["clientx"]["api_user"]
+        api_pass = st.secrets["clientx"]["api_pass"]
+    except Exception:
         return None
 
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
+    base_url = api_url.split("/v1.2")[0]
+    auth_url = f"{base_url}/v1.1/auth"
+    
     try:
-        resp = requests.get(api_url, headers=headers, timeout=API_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
-
-        produtos = payload.get("produtos", [])
-        if not produtos:
-            st.info("ℹ️ Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
+        # --- 1. PEGA O TOKEN ---
+        resp_auth = requests.post(
+            auth_url, 
+            json={"usuario": api_user, "senha": api_pass}, 
+            headers={"Content-type": "application/json"}, 
+            timeout=API_TIMEOUT
+        )
+        resp_auth.raise_for_status()
+        token = resp_auth.json().get("response", {}).get("token")
+        
+        if not token:
+            st.error("🚨 Login feito, mas sem token retornado.")
             return None
 
-        df_prod = pd.DataFrame(produtos)[["codigo", "descricao"]].copy()
-        df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
-        df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
+        # --- 2. MULTI-THREADING PARA BAIXAR TUDO RÁPIDO ---
+        headers_produtos = {"Content-type": "application/json", "token": token}
+        todos_produtos = []
 
-        return df_prod
+        # Função auxiliar que os "trabalhadores" vão usar para pegar 1 página
+        def fetch_page(pagina):
+            url_paginada = api_url.replace("/0/", f"/{pagina}/")
+            try:
+                resp = requests.get(url_paginada, headers=headers_produtos, timeout=10)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    prods = payload.get("produtos", [])
+                    if not prods and "response" in payload:
+                        prods = payload.get("response", {}).get("produtos", [])
+                    return prods
+            except Exception:
+                return []
+            return []
 
-    except requests.exceptions.Timeout:
-        st.warning("⚠️ A API de produtos demorou demais para responder. Análise continua sem nomes.")
+        # Dispara 20 requisições simultâneas. Tenta puxar até a página 200 (40.000 produtos)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            resultados = list(executor.map(fetch_page, range(200)))
+
+        # Junta todas as páginas que voltaram com dados
+        for prods in resultados:
+            if prods:
+                todos_produtos.extend(prods)
+
+        # --- 3. FINALIZA O DATAFRAME ---
+        if todos_produtos:
+            df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
+            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
+            # Remove duplicatas caso a API retorne páginas repetidas
+            return df_prod.drop_duplicates(subset=["codigoProduto"])
+        else:
+            st.info("Catálogo de produtos retornou vazio.")
+            return None
+
+    except Exception as e:
+        st.error(f"🚨 ERRO NA API: {e}")
         return None
-    except requests.exceptions.RequestException:
-        # Erro de rede: não loga detalhes que possam expor a infraestrutura
-        st.warning("⚠️ Não foi possível conectar à API de produtos. Análise continua sem nomes.")
+
+        # --- 2. LOOP DE PAGINAÇÃO PARA BAIXAR TUDO ---
+        headers_produtos = {"Content-type": "application/json", "token": token}
+        todos_produtos = []
+        pagina = 0
+        
+        while True:
+            # Substitui o "0" da URL original pela página atual do loop
+            url_paginada = api_url.replace("/0/", f"/{pagina}/")
+            
+            resp_prod = requests.get(url_paginada, headers=headers_produtos, timeout=API_TIMEOUT)
+            
+            # Se a API der erro ou parar de responder, interrompe o loop
+            if resp_prod.status_code != 200:
+                break
+                
+            payload = resp_prod.json()
+            
+            # Extrai os produtos da gaveta raiz ou da gaveta response
+            produtos_pagina = payload.get("produtos", [])
+            if not produtos_pagina and "response" in payload:
+                produtos_pagina = payload.get("response", {}).get("produtos", [])
+            
+            # Se a página vier vazia, significa que o catálogo acabou!
+            if not produtos_pagina:
+                break
+                
+            todos_produtos.extend(produtos_pagina)
+            
+            # A API entrega de 200 em 200. Se vier menos que isso, é a última página.
+            if len(produtos_pagina) < 200:
+                break
+                
+            pagina += 1
+            
+            # Trava de segurança para evitar loops infinitos (ex: max 500 páginas = 100.000 produtos)
+            if pagina > 500:
+                break
+
+        # --- 3. FINALIZA O DATAFRAME ---
+        if todos_produtos:
+            df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
+            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
+            return df_prod
+        else:
+            st.info("Catálogo de produtos retornou vazio.")
+            return None
+
+    except Exception as e:
+        st.error(f"🚨 ERRO NA API: {e}")
         return None
-    except (KeyError, ValueError):
-        st.warning("⚠️ Resposta da API em formato inesperado. Análise continua sem nomes.")
+        # --- ETAPA 2: BUSCAR OS PRODUTOS COM O TOKEN ---
+        # Exatamente como o manual do clientx pediu: "enviando o atributo 'token'"
+        headers_produtos = {
+            "Content-type": "application/json",
+            "token": token
+        }
+
+        # Bate na porta de produtos agora com a permissão
+        resp_prod = requests.get(api_url, headers=headers_produtos, timeout=API_TIMEOUT)
+        resp_prod.raise_for_status()
+        payload = resp_prod.json()
+
+        produtos = payload.get("produtos", [])
+        if not produtos and "response" in payload:
+            produtos = payload.get("response", {}).get("produtos", [])
+          
+        if produtos:
+            df_prod = pd.DataFrame(produtos)[["codigo", "descricao"]].copy()
+            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
+            return df_prod
+        else:
+            st.info("Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
+            return None
+
+    except Exception as e:
+        # Se algo falhar (senha errada, firewall, etc), vai mostrar o erro vermelho na tela
+        st.error(f"🚨 ERRO NA API: {e}")
         return None
 
 
@@ -246,6 +344,7 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     df["codigoProduto"] = df["codigoProduto"].astype(str).str.strip()
     df = df[df["codigoProduto"].notna() & (df["codigoProduto"] != "") & (df["codigoProduto"] != "nan")]
 
+    
     # ── Merge com catálogo de produtos (PROCV) ───────────────────────────────
     df_catalogo = _buscar_catalogo_api()
     if df_catalogo is not None:
@@ -305,13 +404,9 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.image(
-        "https://i.imgur.com/YOUR_LOGO.png",  # Substitua pelo logo Mi7 ou remova
-        use_column_width=True,
-    ) if False else st.markdown("## 🔍 Mi7 Intelligence")
-
+    st.markdown("## Mi7 Intelligence")
     st.markdown("---")
-    st.markdown("### 📂 1. Upload dos Arquivos")
+    st.markdown("### 1. Upload dos Arquivos")
 
     arquivos_upados = st.file_uploader(
         label="Selecione um ou mais arquivos JSON",
@@ -320,7 +415,7 @@ with st.sidebar:
         help="Os arquivos devem conter a estrutura: response → pesquisas",
     )
 
-    st.markdown("### 📅 2. Filtro de Data")
+    st.markdown("### 2. Filtro de Data")
     usar_filtro_data = st.checkbox("Ativar filtro de data", value=False)
 
     # Os seletores de data são desabilitados até o filtro ser ativado
@@ -328,7 +423,7 @@ with st.sidebar:
     data_inicio = col_d1.date_input("De", key="data_inicio", disabled=not usar_filtro_data)
     data_fim    = col_d2.date_input("Até", key="data_fim", disabled=not usar_filtro_data)
 
-    st.markdown("### 🏢 3. Concorrente Alvo")
+    st.markdown("### 3. Concorrente Alvo")
     nome_concorrente = st.text_input(
         "Nome do concorrente",
         value="ClickSuper",
@@ -337,43 +432,46 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Aviso de status da API (sem expor URLs ou tokens)
-    api_configurada = "irani" in st.secrets and "api_token" in st.secrets.get("irani", {})
+    # Bloco robusto de validação de segredos
+   # Bloco robusto de validação de segredos
+    api_configurada = False
+    try:
+        if "clientx" in st.secrets and "api_user" in st.secrets["clientx"]:
+            api_configurada = True
+    except Exception:
+        api_configurada = False
+
     if api_configurada:
-        st.success("✅ API de produtos configurada.", icon="🔗")
+        st.success("API de produtos configurada.")
     else:
         st.info(
-            "ℹ️ API de produtos não configurada.\n\n"
-            "Configure `irani.api_url` e `irani.api_token` em `.streamlit/secrets.toml` "
-            "para enriquecer os resultados com nomes de produtos.",
-            icon="🔑",
+            "API de produtos não configurada.\n\n"
+            "Configure os dados em Secrets para enriquecer com nomes."
         )
 
-    analisar = st.button("▶ Executar Análise", type="primary", use_container_width=True)
+    analisar = st.button("Executar Análise", type="primary", use_container_width=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # INTERFACE — ÁREA PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────────
 
-st.title("🔍 Mi7 Intelligence — Análise de Concorrentes")
+st.title("Mi7 Intelligence — Análise de Concorrentes")
 st.caption("Ferramenta interna para detecção de inflação de dados por coletores terceiros.")
 
 if not arquivos_upados:
     st.info(
-        "👈 Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar.",
-        icon="📂",
+        "Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar."
     )
     st.stop()
 
 if not analisar:
-    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.", icon="⚙️")
+    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.")
     st.stop()
 
 # ── Carregamento e concatenação ───────────────────────────────────────────────
 with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
     try:
-        # Lê bytes de cada arquivo antes de passar para a função cacheada
         lista_bytes = [f.read() for f in arquivos_upados]
         df_bruto = carregar_multiplos_jsons(lista_bytes)
     except ValueError as exc:
@@ -381,16 +479,13 @@ with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
         st.stop()
 
 st.success(
-    f"✅ {len(arquivos_upados)} arquivo(s) carregado(s) · "
-    f"**{len(df_bruto):,}** registros totais antes do filtro.",
-    icon="📦",
-)
+    f" {len(arquivos_upados)} arquivo(s) carregado(s) · "
+    f"**{len(df_bruto):,}** registros totais antes do filtro.")
 
 # ── Filtro de data ────────────────────────────────────────────────────────────
 df_filtrado = df_bruto.copy()
 
 if usar_filtro_data:
-    # Normaliza a coluna de data para aplicar o filtro
     col_data = next(
         (c for c in df_filtrado.columns if c.lower().strip() in ["data", "date", "datacoleta", "data_coleta"]),
         None,
@@ -410,10 +505,8 @@ if usar_filtro_data:
             st.stop()
 
         st.info(
-            f"📅 Filtro aplicado: **{data_inicio}** até **{data_fim}** · "
-            f"**{len(df_filtrado):,}** registros restantes.",
-            icon="🗓️",
-        )
+            f"Filtro applied: **{data_inicio}** até **{data_fim}** · "
+            f"**{len(df_filtrado):,}** registros restantes.")
 
 # ── Execução da análise ───────────────────────────────────────────────────────
 with st.spinner("Executando análise competitiva…"):
@@ -425,7 +518,7 @@ with st.spinner("Executando análise competitiva…"):
 
 # ── KPIs ──────────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("📊 Painel de Métricas")
+st.subheader("Painel de Métricas")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -434,7 +527,7 @@ col2.metric("Produtos Únicos Mi7",  f"{resultado['mi7_unique']:,}")
 col3.metric(f"Registros {nome_concorrente}", f"{resultado['comp_total']:,}")
 col4.metric(f"Únicos {nome_concorrente}",    f"{resultado['comp_unique']:,}")
 col5.metric(
-    "🚨 Índice de Fraude",
+    "Índice de Fraude",
     f"{resultado['indice_fraude']}%",
     delta=f"+{resultado['comp_dup']:,} duplicatas",
     delta_color="inverse",
@@ -442,7 +535,7 @@ col5.metric(
 
 # ── Gráfico comparativo ───────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("📈 Total vs. Únicos por Empresa")
+st.subheader("Total vs. Únicos por Empresa")
 
 df_chart = pd.DataFrame({
     "Empresa": ["Mi7", "Mi7", nome_concorrente, nome_concorrente],
@@ -462,7 +555,7 @@ st.bar_chart(
 
 # ── Prova do Crime ────────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("🚨 Prova do Crime — Top 20 Produtos Mais Repetidos")
+st.subheader("Top 20 Produtos Mais Repetidos")
 st.caption(
     f"Produtos que o coletor **{nome_concorrente}** mais repetiu no período. "
     "Alta repetição indica inflação artificial de volume."
@@ -484,23 +577,23 @@ st.dataframe(
 
 # ── Exportar resultado ────────────────────────────────────────────────────────
 st.markdown("---")
-st.subheader("⬇️ Exportar Dados")
+st.subheader("Exportar Dados")
 
 col_exp1, col_exp2 = st.columns(2)
 
 with col_exp1:
     csv_prova = resultado["prova"].to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 Baixar Prova do Crime (.csv)",
+        label="Baixar Resultados (.csv)",
         data=csv_prova,
-        file_name=f"prova_do_crime_{nome_concorrente}.csv",
+        file_name=f"relatorio_{nome_concorrente}.csv",
         mime="text/csv",
     )
 
 with col_exp2:
     csv_comp = resultado["df_comp"].to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 Baixar Todos os Registros do Concorrente (.csv)",
+        label="Baixar Todos os Registros do Concorrente (.csv)",
         data=csv_comp,
         file_name=f"registros_{nome_concorrente}.csv",
         mime="text/csv",
