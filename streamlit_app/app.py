@@ -257,7 +257,7 @@ with st.sidebar:
         use_column_width=True,
     st.markdown("## Mi7 Intelligence")
     st.markdown("---")
-    st.markdown("### 📂 1. Upload dos Arquivos")
+    st.markdown("### 1. Upload dos Arquivos"))
     arquivos_upados = st.file_uploader(
         label="Selecione um ou mais arquivos JSON",
         type=["json"],
