@@ -182,7 +182,9 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
             st.info("Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
             return None
 
-    except Exception:
+    except Exception as e:
+        # Aqui o erro é capturado de forma correta e impresso na tela!
+        st.error(f"🚨 ERRO NA API: {e}")
         return None
 
 
@@ -223,16 +225,14 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     df["codigoProduto"] = df["codigoProduto"].astype(str).str.strip()
     df = df[df["codigoProduto"].notna() & (df["codigoProduto"] != "") & (df["codigoProduto"] != "nan")]
 
+    
     # ── Merge com catálogo de produtos (PROCV) ───────────────────────────────
     df_catalogo = _buscar_catalogo_api()
     if df_catalogo is not None:
         df = df.merge(df_catalogo, on="codigoProduto", how="left")
         df["descricao"] = df["descricao"].fillna("Não encontrado")
-  
-    except Exception as e:
-        # Exibe o erro real na tela do Streamlit para debugar
-        st.error(f"🚨 ERRO NA API: {e}") 
-        return None
+    else:
+        df["descricao"] = "Sem catálogo"
 
     # ── Separação Mi7 vs Concorrente ─────────────────────────────────────────
     df_mi7  = df[df["source"].str.contains("Mi7", case=False, na=False)].copy()
