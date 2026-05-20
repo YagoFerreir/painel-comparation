@@ -1,113 +1,113 @@
 <!DOCTYPE html>
-<html lang="pt-BR" class="h-full">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Inteligência Competitiva{% endblock %} — Mi7</title>
+    <title>{% block title %}Painel Mi7{% endblock %} — Inteligência Competitiva</title>
+    <meta name="description" content="Painel de Inteligência Competitiva Mi7 — análise de dados de concorrentes.">
 
-    <!-- Tailwind CSS via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'mi7-bg': 'var(--color-bg)',
-                        'mi7-surface': 'var(--color-surface)',
-                        'mi7-accent': 'var(--color-accent)',
-                        'mi7-vivid': 'var(--color-accent-vivid)',
-                        'mi7-success': 'var(--color-success)',
-                        'mi7-danger': 'var(--color-danger)',
-                        'mi7-text': 'var(--color-text-primary)',
-                        'mi7-muted': 'var(--color-text-secondary)',
-                    }
-                }
-            }
-        }
-    </script>
-
-    <!-- Alpine.js via CDN -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <!-- Chart.js via CDN (para os gráficos) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- CSS customizado da Mi7 -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
-
-    <style>
-        body {
-            background-color: var(--color-bg);
-            color: var(--color-text-primary);
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    {% block extra_css %}{% endblock %}
 </head>
-<body class="h-full antialiased">
+<body>
 
-    <!-- Navbar -->
-    {% if session.user %}
-    <nav class="border-b sticky top-0 z-50"
-         style="background-color: var(--color-surface); border-color: var(--color-border);">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between items-center h-16">
-                <!-- Logo -->
-                <div class="flex items-center gap-3">
-                    <img src="{{ url_for('static', filename='img/logo_mi7.png') }}"
-                         alt="Mi7"
-                         class="h-8 w-auto"
-                         onerror="this.style.display='none'">
-                    <span class="font-bold text-lg tracking-tight" style="color: var(--color-text-primary);">
-                        Inteligência Competitiva
-                    </span>
-                </div>
+<div class="app">
 
-                <!-- Usuário logado -->
-                <div class="flex items-center gap-4">
-                    <span class="text-sm" style="color: var(--color-text-secondary);">
-                        {{ session.user.name }}
-                    </span>
-                    <a href="{{ url_for('auth.logout') }}"
-                       class="text-sm px-3 py-1.5 rounded-md border transition-all hover:opacity-80"
-                       style="border-color: var(--color-border); color: var(--color-text-secondary);">
-                        Sair
-                    </a>
-                </div>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-icon">M7</div>
+            <div class="sidebar-brand-text">
+                <div class="sidebar-brand-name">Mi7 Intelligence</div>
+                <div class="sidebar-brand-sub">Inteligência Competitiva</div>
             </div>
         </div>
-    </nav>
-    {% endif %}
 
-    <!-- Flash Messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-            {% for category, message in messages %}
-            <div x-data="{ show: true }"
-                 x-show="show"
-                 x-transition
-                 class="flex items-center justify-between p-3 rounded-lg mb-2 text-sm"
-                 style="background-color: var(--color-surface-2);"
-                 :class="{
-                     'border-l-4 border-green-500': '{{ category }}' === 'success',
-                     'border-l-4 border-yellow-500': '{{ category }}' === 'warning',
-                     'border-l-4 border-red-500': '{{ category }}' === 'error',
-                     'border-l-4 border-blue-500': '{{ category }}' === 'info'
-                 }">
-                <span>{{ message }}</span>
-                <button @click="show = false" class="ml-4 opacity-50 hover:opacity-100">✕</button>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Análise</div>
+                <a href="{{ url_for('dashboard.dashboard') }}"
+                   class="sidebar-item {% if '/dashboard' in request.path or request.path == '/' %}active{% endif %}">
+                    <i data-lucide="bar-chart-2"></i>
+                    <span class="sidebar-item-label">Painel Competitivo</span>
+                </a>
             </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-    {% endwith %}
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Conta</div>
+                <a href="{{ url_for('auth.logout') }}" class="sidebar-item">
+                    <i data-lucide="log-out"></i>
+                    <span class="sidebar-item-label">Sair</span>
+                </a>
+            </div>
+        </nav>
 
-    <!-- Conteúdo Principal -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {% block content %}{% endblock %}
+        <div class="sidebar-toggle" onclick="toggleSidebar()">
+            <i data-lucide="panel-left-close"></i>
+            <span class="sidebar-toggle-label">Recolher menu</span>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="app-main" id="app-main">
+        <div class="app-content">
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="messages">
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'error' if category == 'error' else ('success' if category == 'success' else ('warning' if category == 'warning' else 'info')) }}">
+                    <i data-lucide="{{ 'alert-circle' if category == 'error' else ('check-circle' if category == 'success' else 'info') }}" class="alert-icon"></i>
+                    <div>{{ message }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+
+        </div>
     </main>
 
-    <!-- Scripts adicionais -->
-    {% block scripts %}{% endblock %}
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay">
+    <i data-lucide="loader"></i>
+    <p>Processando...</p>
+</div>
+
+<script src="https://unpkg.com/lucide@0.474.0/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3"></script>
+
+<script>
+(function () {
+    'use strict';
+    var sidebar = document.getElementById('sidebar');
+    var main    = document.getElementById('app-main');
+
+    function toggleSidebar() {
+        if (!sidebar) return;
+        var collapsed = sidebar.classList.toggle('collapsed');
+        if (main) main.classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0'); } catch(e){}
+        lucide.createIcons();
+    }
+
+    try {
+        if (localStorage.getItem('sidebar-collapsed') === '1' && sidebar) {
+            sidebar.classList.add('collapsed');
+            if (main) main.classList.add('sidebar-collapsed');
+        }
+    } catch(e){}
+
+    window.toggleSidebar = toggleSidebar;
+})();
+</script>
+
+{% block extra_js %}{% endblock %}
 </body>
 </html>

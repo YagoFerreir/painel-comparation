@@ -1,94 +1,191 @@
-{% extends 'base.html' %}
+{% extends 'base_public.html' %}
+{% block title %}Acesso{% endblock %}
 
-{% block title %}Login{% endblock %}
+{% block extra_css %}
+<style>
+    .auth-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--color-200);
+        margin-bottom: 0;
+    }
+
+    .auth-tab {
+        flex: 1;
+        padding: var(--space-4) var(--space-5);
+        font-size: 13px;
+        font-weight: 500;
+        text-align: center;
+        cursor: pointer;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--color-500);
+        transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+        font-family: var(--font-sans);
+    }
+
+    .auth-tab:hover {
+        color: var(--color-900);
+    }
+
+    .auth-tab.active {
+        color: var(--color-900);
+        border-bottom-color: var(--color-900);
+        font-weight: 600;
+    }
+
+    .auth-panel {
+        display: none;
+        padding: var(--space-6);
+    }
+
+    .auth-panel.active {
+        display: block;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="min-h-[80vh] flex items-center justify-center">
-    <div class="w-full max-w-md">
+<div style="width:100%;max-width:420px;">
 
-        <!-- Card de Login -->
-        <div class="rounded-2xl p-8 shadow-2xl"
-             style="background-color: var(--color-surface); border: 1px solid var(--color-border);">
+    <!-- Brand -->
+    <div style="text-align:center;margin-bottom:var(--space-6);">
+        <div style="display:inline-flex;align-items:center;justify-content:center;
+                    width:48px;height:48px;background:var(--color-900);color:#fff;
+                    font-weight:700;font-size:18px;margin-bottom:var(--space-4);">
+            M7
+        </div>
+        <h1 style="font-size:22px;font-weight:300;color:var(--color-900);">Painel de Inteligência</h1>
+        <p style="font-size:13px;color:var(--color-500);margin-top:var(--space-1);">Mi7 — Dados Competitivos</p>
+    </div>
 
-            <!-- Cabeçalho -->
-            <div class="text-center mb-8">
-                <img src="{{ url_for('static', filename='img/logo_mi7.png') }}"
-                     alt="Mi7"
-                     class="h-12 w-auto mx-auto mb-4"
-                     onerror="this.style.display='none'">
-                <h1 class="text-2xl font-bold tracking-tight" style="color: var(--color-text-primary);">
-                    Painel de Inteligência
-                </h1>
-                <p class="text-sm mt-1" style="color: var(--color-text-secondary);">
-                    Acesso restrito ao time Mi7
-                </p>
-            </div>
+    <!-- Card com abas -->
+    <div class="card" style="margin-bottom:0;">
 
-            <!-- Formulário -->
-            <form method="POST" action="{{ url_for('auth.login') }}"
-                  x-data="{ loading: false }"
-                  @submit="loading = true">
+        <!-- Abas -->
+        <div class="auth-tabs">
+            <button class="auth-tab {% if active_tab == 'login' or not active_tab %}active{% endif %}" id="tab-login"
+                onclick="switchTab('login')">
+                Entrar
+            </button>
+            <button class="auth-tab {% if active_tab == 'register' %}active{% endif %}" id="tab-register"
+                onclick="switchTab('register')">
+                Criar Conta
+            </button>
+        </div>
 
-                <!-- Campo E-mail -->
-                <div class="mb-4">
-                    <label for="email" class="block text-sm font-medium mb-2"
-                           style="color: var(--color-text-secondary);">
-                        E-mail corporativo
-                    </label>
-                    <input type="email"
-                           id="email"
-                           name="email"
-                           required
-                           autocomplete="email"
-                           class="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 transition-all"
-                           style="background-color: var(--color-surface-2);
-                                  border: 1px solid var(--color-border);
-                                  color: var(--color-text-primary);
-                                  --tw-ring-color: var(--color-accent);"
-                           placeholder="seuemail@grupoint.com.br">
+        <!-- Painel: Login -->
+        <div class="auth-panel {% if active_tab == 'login' or not active_tab %}active{% endif %}" id="panel-login">
+            <form method="POST" action="{{ url_for('auth.login') }}" id="login-form"
+                onsubmit="handleSubmit('login-btn', 'Entrando...')">
+
+                <div class="form-group">
+                    <label class="label label-required" for="login-email">Login</label>
+                    <input type="text" id="login-email" name="email" class="input" placeholder="Digite seu login"
+                        autocomplete="username" required>
                 </div>
 
-                <!-- Campo Senha -->
-                <div class="mb-6">
-                    <label for="password" class="block text-sm font-medium mb-2"
-                           style="color: var(--color-text-secondary);">
-                        Senha
-                    </label>
-                    <input type="password"
-                           id="password"
-                           name="password"
-                           required
-                           autocomplete="current-password"
-                           class="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 transition-all"
-                           style="background-color: var(--color-surface-2);
-                                  border: 1px solid var(--color-border);
-                                  color: var(--color-text-primary);"
-                           placeholder="••••••••">
+                <div class="form-group" style="margin-bottom:var(--space-6);">
+                    <label class="label label-required" for="login-password">Senha</label>
+                    <input type="password" id="login-password" name="password" class="input" placeholder="••••••••"
+                        autocomplete="current-password" required>
                 </div>
 
-                <!-- Botão de Login -->
-                <button type="submit"
-                        :disabled="loading"
-                        class="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all
-                               hover:opacity-90 active:scale-95 disabled:opacity-50"
-                        style="background-color: var(--color-accent); color: white;">
-                    <span x-show="!loading">Entrar no Sistema</span>
-                    <span x-show="loading" class="flex items-center justify-center gap-2">
-                        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
-                        Verificando...
-                    </span>
+                <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+                    <i data-lucide="log-in"></i>
+                    <span>Entrar</span>
                 </button>
 
             </form>
         </div>
 
-        <p class="text-center text-xs mt-6" style="color: var(--color-text-secondary);">
-            Acesso validado via Bitrix24 · Mi7 Grupo © {{ 2025 }}
-        </p>
+        <!-- Painel: Cadastro -->
+        <div class="auth-panel {% if active_tab == 'register' %}active{% endif %}" id="panel-register">
+
+            <div class="alert alert-info" style="margin-bottom:var(--space-5);">
+                <i data-lucide="info" class="alert-icon"></i>
+                <div style="font-size:13px;">
+                    Cadastro temporário disponível enquanto a integração com o Bitrix24 está em andamento.
+                </div>
+            </div>
+
+            <form method="POST" action="{{ url_for('auth.register') }}" id="register-form"
+                onsubmit="handleSubmit('register-btn', 'Cadastrando...')">
+
+                <div class="form-group">
+                    <label class="label label-required" for="reg-name">Nome completo</label>
+                    <input type="text" id="reg-name" name="name" class="input" placeholder="Seu nome"
+                        autocomplete="name" required value="{{ form_name or '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="label label-required" for="reg-email">Login (usuário)</label>
+                    <input type="text" id="reg-email" name="email" class="input" placeholder="Escolha um login único"
+                        autocomplete="username" required value="{{ form_email or '' }}">
+                    <div class="helper-text">Pode ser seu nome, e-mail ou qualquer identificador.</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="label label-required" for="reg-password">Senha</label>
+                    <input type="password" id="reg-password" name="password" class="input"
+                        placeholder="Mínimo 6 caracteres" autocomplete="new-password" required minlength="6">
+                </div>
+
+                <div class="form-group" style="margin-bottom:var(--space-6);">
+                    <label class="label label-required" for="reg-password2">Confirmar senha</label>
+                    <input type="password" id="reg-password2" name="password2" class="input"
+                        placeholder="Repita a senha" autocomplete="new-password" required minlength="6">
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full" id="register-btn">
+                    <i data-lucide="user-plus"></i>
+                    <span>Criar Conta</span>
+                </button>
+
+            </form>
+        </div>
 
     </div>
+
+    <p style="text-align:center;font-size:12px;color:var(--color-400);margin-top:var(--space-4);">
+        Acesso restrito à equipe Mi7
+    </p>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        'use strict';
+
+        window.switchTab = function (tab) {
+            ['login', 'register'].forEach(function (t) {
+                document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+                document.getElementById('panel-' + t).classList.toggle('active', t === tab);
+            });
+        };
+
+        window.handleSubmit = function (btnId, label) {
+            var btn = document.getElementById(btnId);
+            if (!btn) return;
+            btn.disabled = true;
+            var span = btn.querySelector('span');
+            if (span) span.textContent = label;
+            lucide.createIcons();
+        };
+
+        // Validação client-side das senhas
+        var form = document.getElementById('register-form');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                var p1 = document.getElementById('reg-password').value;
+                var p2 = document.getElementById('reg-password2').value;
+                if (p1 !== p2) {
+                    e.preventDefault();
+                    alert('As senhas não conferem.');
+                }
+            });
+        }
+    })();
+</script>
 {% endblock %}

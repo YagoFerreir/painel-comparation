@@ -7,7 +7,21 @@ services:
     envVars:
       - key: FLASK_ENV
         value: production
+
       - key: SECRET_KEY
-        generateValue: true  # Render gera automaticamente
+        generateValue: true  # Render gera automaticamente uma chave forte
+
+      - key: DATABASE_URL
+        sync: false  # Preencher manualmente no painel do Render com a URL do PostgreSQL
+
       - key: BITRIX24_WEBHOOK_URL
-        sync: false  # Será preenchido manualmente no painel do Render
+        sync: false  # Preencher manualmente no painel do Render
+
+      # ── API do Cliente ──────────────────────────────────────────────────────
+      # Preencher manualmente no painel do Render antes do deploy.
+      # NUNCA colocar os valores reais neste arquivo (está no repositório público).
+      - key: CLIENT_API_URL
+        sync: false  # URL base do endpoint de produtos do cliente
+
+      - key: CLIENT_API_TOKEN
+        sync: false  # Token de autenticação (Bearer ou API Key) do cliente

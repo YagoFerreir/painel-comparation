@@ -13,8 +13,14 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config_map[config_name])
 
-    # Garante que a pasta de uploads existe
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    # Inicializar o banco de dados
+    from app.models import db
+    db.init_app(app)
+
+    # Criação das tabelas e pasta de upload contextualmente
+    with app.app_context():
+        db.create_all()
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
     # --- Registro de Blueprints ---
     # Importamos DENTRO da função para evitar importações circulares

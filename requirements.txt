@@ -1,5 +1,8 @@
 flask
+werkzeug
 pandas
 requests
 python-dotenv
 gunicorn
+Flask-SQLAlchemy
+pg8000

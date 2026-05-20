@@ -17,3 +17,15 @@ uploads/
 
 # macOS
 .DS_Store
+
+# ──────────────────────────────────────────
+# STREAMLIT — SEGURANÇA (CRÍTICO)
+# NUNCA remova estas linhas. O secrets.toml
+# contém tokens e URLs do cliente Irani.
+# ──────────────────────────────────────────
+**/.streamlit/secrets.toml
+.streamlit/secrets.toml
+
+# Cache do Streamlit
+.streamlit/cache/
+__pycache__/

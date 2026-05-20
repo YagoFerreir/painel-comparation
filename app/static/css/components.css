@@ -1,0 +1,221 @@
+/* ============================================================
+   components.css — Catálogo canônico de componentes Mi7
+   Depende de design-system.css + layout.css carregados antes.
+   Regra: border-radius: 0 em TODA UI estrutural.
+   ============================================================ */
+
+/* ── Cards ─────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--color-200);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-6);
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-200);
+}
+.card-title   { font-size: 14px; font-weight: 600; color: var(--color-900); }
+.card-subtitle{ font-size: 12px; color: var(--color-500); margin-top: 2px; }
+.card-body    { padding: var(--space-5); }
+.card-footer  {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-200);
+}
+
+/* ── Botões ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 10px var(--space-5);
+  font-size: 14px; font-weight: 500; font-family: inherit;
+  border: none; border-radius: 0; cursor: pointer;
+  transition: background var(--duration-fast) ease, opacity var(--duration-fast) ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn i { width: 14px; height: 14px; flex-shrink: 0; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+
+.btn-primary   { background: var(--color-900); color: #fff; }
+.btn-primary:hover { background: var(--color-800); }
+.btn-secondary { background: #fff; color: var(--color-600); border: 1px solid var(--color-300); }
+.btn-secondary:hover { background: var(--color-50); }
+.btn-ghost     { background: transparent; color: var(--color-600); }
+.btn-ghost:hover { background: var(--color-100); }
+.btn-danger    { background: var(--error); color: #fff; }
+.btn-danger:hover { background: var(--error-hover); }
+.btn-success   { background: var(--success); color: #fff; }
+.btn-success:hover { background: var(--success-hover); }
+.btn-icon      { background: transparent; color: var(--color-500); padding: 6px; width: 32px; height: 32px; justify-content: center; }
+.btn-icon:hover { background: var(--color-100); color: var(--color-900); }
+.btn-icon i    { width: 16px; height: 16px; }
+
+.btn-sm { padding: 8px var(--space-4); font-size: 13px; }
+.btn-lg { padding: var(--space-3) var(--space-6); }
+.btn-xl { padding: var(--space-4) var(--space-8); font-size: 16px; }
+.btn-full { width: 100%; justify-content: center; }
+
+/* ── Badges ─────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px var(--space-2);
+  font-size: 12px; font-weight: 500;
+  border-radius: 0; white-space: nowrap;
+}
+.badge-success { background: var(--success-bg); color: var(--success-text); }
+.badge-error   { background: var(--error-bg);   color: var(--error-text); }
+.badge-warning { background: var(--warning-bg); color: var(--warning-text); }
+.badge-info    { background: var(--info-bg);    color: var(--info-text); }
+.badge-neutral { background: var(--color-100);  color: var(--color-600); }
+.badge-dark    { background: var(--color-900);  color: #fff; }
+
+/* ── Inputs / Formulários ───────────────────────────────────── */
+.form-group { margin-bottom: var(--space-5); }
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-4);
+}
+.label {
+  display: block; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--color-700); margin-bottom: var(--space-2);
+}
+.label-required::after { content: ' *'; color: var(--error); }
+.input, .select {
+  display: block; width: 100%;
+  padding: 10px var(--space-4);
+  font-size: 14px; font-family: inherit;
+  color: var(--color-900);
+  background: var(--bg-card);
+  border: 1px solid var(--color-300);
+  border-radius: 0;
+  transition: border-color var(--duration-fast) ease;
+  outline: none;
+}
+.input:focus, .select:focus  { border-color: var(--color-900); }
+.input::placeholder           { color: var(--color-400); }
+.input:disabled               { background: var(--bg-disabled); color: var(--color-400); }
+.helper-text { font-size: 12px; color: var(--color-500); margin-top: var(--space-1); }
+
+/* ── Tabelas ─────────────────────────────────────────────────── */
+.table-container { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left; padding: 10px var(--space-4);
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--color-600);
+  background: var(--color-50);
+  border-bottom: 1px solid var(--color-200);
+  white-space: nowrap;
+}
+.table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-100);
+  color: var(--color-700);
+}
+.table tbody tr:hover td { background: var(--bg-hover); }
+.table .mono { font-family: var(--font-mono); font-size: 13px; }
+
+/* ── Alerts ──────────────────────────────────────────────────── */
+.alert {
+  display: flex; align-items: flex-start; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-left: 3px solid;
+  margin-bottom: var(--space-4);
+  font-size: 14px;
+}
+.alert-icon { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+.alert-title { font-weight: 600; margin-bottom: 2px; }
+.alert-success { background: var(--success-bg); border-color: var(--success); color: var(--success-text); }
+.alert-error   { background: var(--error-bg);   border-color: var(--error);   color: var(--error-text); }
+.alert-warning { background: var(--warning-bg); border-color: var(--warning); color: var(--warning-text); }
+.alert-info    { background: var(--info-bg);    border-color: var(--info);    color: var(--info-text); }
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  padding: var(--space-12) var(--space-8); text-align: center;
+}
+.empty-state-icon { color: var(--color-300); margin-bottom: var(--space-4); }
+.empty-state-icon i { width: 48px; height: 48px; }
+.empty-state-title { font-size: 16px; font-weight: 500; color: var(--color-700); margin-bottom: var(--space-2); }
+.empty-state-text  { font-size: 14px; color: var(--color-500); max-width: 360px; }
+
+/* ── Upload zone ─────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--color-300);
+  background: var(--bg-card);
+  padding: var(--space-8) var(--space-6);
+  text-align: center; cursor: pointer;
+  transition: border-color var(--duration-fast) ease,
+              background   var(--duration-fast) ease;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--color-900); background: var(--color-50);
+}
+.upload-zone.uploaded { border-color: var(--success); background: var(--success-bg); border-style: solid; }
+.upload-zone-icon { margin: 0 auto var(--space-3); color: var(--color-400); }
+.upload-zone-icon i { width: 32px; height: 32px; }
+.upload-zone-title  { font-size: 14px; font-weight: 500; color: var(--color-700); margin-bottom: var(--space-1); }
+.upload-zone-sub    { font-size: 13px; color: var(--color-500); }
+.upload-file-name   { font-size: 13px; font-weight: 500; color: var(--success-text); margin-top: var(--space-2); }
+
+/* ── KPI Stat cards ──────────────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6); }
+.stat-card { background: var(--bg-card); border: 1px solid var(--color-200); padding: var(--space-5); box-shadow: var(--shadow-sm); }
+.stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-500); margin-bottom: var(--space-2); }
+.stat-value { font-size: 28px; font-weight: 300; color: var(--color-900); line-height: 1.1; }
+.stat-value.danger  { color: var(--error); }
+.stat-value.success { color: var(--success); }
+.stat-sub   { font-size: 12px; color: var(--color-500); margin-top: var(--space-1); }
+
+/* ── Utilities ───────────────────────────────────────────────── */
+.d-flex  { display: flex; }
+.d-grid  { display: grid; }
+.align-center    { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-end     { justify-content: flex-end; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-6 { gap: var(--space-6); }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mt-6 { margin-top: var(--space-6); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-6 { margin-bottom: var(--space-6); }
+.w-full { width: 100%; }
+.hidden { display: none !important; }
+
+/* ── Grid helpers ────────────────────────────────────────────── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+@media (max-width: 900px) {
+  .grid-4 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* ── Loading overlay ─────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed; inset: 0; background: rgba(255,255,255,0.8);
+  display: none; align-items: center; justify-content: center;
+  z-index: 500; flex-direction: column; gap: var(--space-3);
+}
+.loading-overlay.active { display: flex; }
+.loading-overlay i { width: 32px; height: 32px; color: var(--color-600); animation: spin 1.2s linear infinite; }
+.loading-overlay p { font-size: 14px; color: var(--color-600); }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Messages (flash) ────────────────────────────────────────── */
+.messages { margin-bottom: var(--space-5); }

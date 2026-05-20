@@ -1,0 +1,96 @@
+/* ============================================================
+   layout.css — Shell da aplicação Mi7
+   Depende de design-system.css estar carregado antes.
+   ============================================================ */
+
+.app { display: flex; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0;
+  height: 100vh; width: 260px;
+  background: var(--color-900); color: #fff;
+  display: flex; flex-direction: column;
+  z-index: 200; overflow: hidden;
+  transition: width var(--duration-normal) ease;
+}
+.sidebar.collapsed { width: 64px; }
+
+.sidebar-brand {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-5) var(--space-4);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.sidebar-brand-icon {
+  width: 32px; height: 32px;
+  background: #fff; color: var(--color-900);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px; flex-shrink: 0;
+}
+.sidebar-brand-name { font-size: 13px; font-weight: 600; color: #fff; }
+.sidebar-brand-sub  { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+
+.sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--space-3) 0; }
+.sidebar-nav::-webkit-scrollbar { width: 4px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
+
+.sidebar-section { margin-bottom: var(--space-2); }
+.sidebar-section-title {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: rgba(255,255,255,0.35);
+  padding: var(--space-2) var(--space-4);
+  white-space: nowrap;
+}
+
+.sidebar-item {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 10px var(--space-4);
+  color: rgba(255,255,255,0.65); font-size: 13px;
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  position: relative;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+.sidebar-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
+.sidebar-item.active { background: rgba(255,255,255,0.10); color: #fff; font-weight: 500; }
+.sidebar-item.active::after {
+  content: ''; position: absolute; right: 0; top: 0; bottom: 0;
+  width: 2px; background: #fff;
+}
+.sidebar-item i { width: 20px; height: 20px; flex-shrink: 0; }
+
+.sidebar-toggle {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4); border-top: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.45); cursor: pointer; flex-shrink: 0;
+  transition: color var(--duration-fast) ease;
+}
+.sidebar-toggle:hover { color: #fff; }
+.sidebar-toggle i { width: 20px; height: 20px; flex-shrink: 0; }
+
+.sidebar.collapsed .sidebar-brand-text,
+.sidebar.collapsed .sidebar-section-title,
+.sidebar.collapsed .sidebar-item-label,
+.sidebar.collapsed .sidebar-toggle-label { opacity: 0; width: 0; overflow: hidden; }
+.sidebar.collapsed .sidebar-item.active::after { display: none; }
+
+/* Main */
+.app-main { margin-left: 260px; flex: 1; min-width: 0; transition: margin-left var(--duration-normal) ease; }
+.app-main.sidebar-collapsed { margin-left: 64px; }
+.app-content { padding: var(--space-8); }
+
+/* Page header */
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-6); }
+.page-header h1 { font-size: 24px; font-weight: 300; color: var(--color-900); }
+.page-header p  { font-size: 14px; color: var(--color-500); margin-top: var(--space-1); }
+
+/* Breakpoints */
+@media (max-width: 1024px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .app-main, .app-main.sidebar-collapsed { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .app-content { padding: var(--space-4); }
+}
