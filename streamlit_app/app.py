@@ -155,9 +155,9 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
 # FUNÇÃO AUXILIAR — API DO CLIENTE (SEGURA)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Buscando catálogo de produtos na API…", ttl=3600)
+@st.cache_data(show_spinner="Autenticando e buscando catálogo na API…", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
-    # 1. Lê a URL, usuário e senha que você colocou no painel do Streamlit
+    # 1. Lê a URL de produtos, usuário e senha que estão salvos nos Secrets
     try:
         api_url  = st.secrets["clientx"]["api_url"]
         api_user = st.secrets["clientx"]["api_user"]
@@ -165,11 +165,37 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
     except Exception:
         return None
 
+    # --- ETAPA 1: LOGIN PARA PEGAR O TOKEN ---
+    # Pegamos a raiz do link dinamicamente e apontamos para a rota /v1.1/auth que o manual pediu
+    base_url = api_url.split("/v1.2")[0]
+    auth_url = f"{base_url}/v1.1/auth"
+    
     try:
-        # 2. Usa auth=(usuario, senha) em vez do Header com Token
-        resp = requests.get(api_url, auth=(api_user, api_pass), timeout=API_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
+        auth_payload = {"usuario": api_user, "senha": api_pass}
+        headers_auth = {"Content-type": "application/json"}
+        
+        # Bate na porta de autenticação
+        resp_auth = requests.post(auth_url, json=auth_payload, headers=headers_auth, timeout=API_TIMEOUT)
+        resp_auth.raise_for_status()
+        
+        # Extrai o crachá (token) gigante gerado por eles
+        token = resp_auth.json().get("token")
+        
+        if not token:
+            st.error("🚨 Login feito, mas a API não devolveu o Token.")
+            return None
+
+        # --- ETAPA 2: BUSCAR OS PRODUTOS COM O TOKEN ---
+        # Exatamente como o manual do clientx pediu: "enviando o atributo 'token'"
+        headers_produtos = {
+            "Content-type": "application/json",
+            "token": token
+        }
+
+        # Bate na porta de produtos agora com a permissão
+        resp_prod = requests.get(api_url, headers=headers_produtos, timeout=API_TIMEOUT)
+        resp_prod.raise_for_status()
+        payload = resp_prod.json()
 
         produtos = payload.get("produtos", [])
         
@@ -183,7 +209,7 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
             return None
 
     except Exception as e:
-        # Aqui o erro é capturado de forma correta e impresso na tela!
+        # Se algo falhar (senha errada, firewall, etc), vai mostrar o erro vermelho na tela
         st.error(f"🚨 ERRO NA API: {e}")
         return None
 
