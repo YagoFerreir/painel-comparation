@@ -164,7 +164,7 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
     except Exception:
         return None
 
-   base_url = api_url.split("/v1.2")[0]
+    base_url = api_url.split("/v1.2")[0]
     auth_url = f"{base_url}/v1.1/auth"
     
     try:
