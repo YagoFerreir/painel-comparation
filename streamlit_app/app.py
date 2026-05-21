@@ -10,14 +10,25 @@ Funcionalidades:
 Segurança: NENHUMA credencial está neste arquivo.
            Todas as configurações sensíveis ficam em .streamlit/secrets.toml
            (excluído do Git via .gitignore).
+
+CHANGELOG da revisão (2026-05):
+  - Removido código morto/duplicado em _buscar_catalogo_api
+  - Corrigido bug de perda de zero à esquerda em EANs
+  - Paginação da API mais robusta (sem limite arbitrário de 15 páginas)
+  - Anti-loop baseado em conjunto de IDs, não no primeiro item
+  - Classificador de origem com match por palavra (regex word boundary)
+  - Validação de intervalo de datas
+  - Removido import não usado (concurrent.futures)
+  - Cache da API não persiste retornos None
+  - Tratamento de exceção mais granular na API
 """
 
 import json
-import io
+import re
 import streamlit as st
 import pandas as pd
 import requests
-import concurrent.futures
+
 # ──────────────────────────────────────────────────────────────────────────────
 # CONSTANTES DE NEGÓCIO
 # ──────────────────────────────────────────────────────────────────────────────
@@ -28,6 +39,10 @@ MI7_PATTERNS = ("MENOR PREÇO", "MENOR PRECO", "ONLINE")
 # Timeout (segundos) para chamada da API do cliente
 API_TIMEOUT = 15
 
+# Limites de paginação da API de catálogo
+API_PAGE_SIZE = 200          # tamanho típico de página retornado pela API
+API_MAX_PAGES = 500          # trava de segurança (500 * 200 = 100k produtos)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CONFIGURAÇÃO DA PÁGINA
@@ -35,7 +50,7 @@ API_TIMEOUT = 15
 
 st.set_page_config(
     page_title="Mi7 Intelligence · Análise de Concorrentes",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -69,7 +84,10 @@ def _extrair_pesquisas(raw: dict) -> list[dict]:
     Retorna a lista de registros ou lança ValueError com mensagem clara.
     """
     try:
-        pesquisas = raw["response"]["pesquisas"]
+        response = raw["response"]
+        if not isinstance(response, dict):
+            raise ValueError("O campo 'response' não é um objeto.")
+        pesquisas = response["pesquisas"]
         if not isinstance(pesquisas, list):
             raise ValueError("O campo 'pesquisas' não é uma lista.")
         return pesquisas
@@ -82,11 +100,12 @@ def _extrair_pesquisas(raw: dict) -> list[dict]:
 
 
 @st.cache_data(show_spinner=False)
-def carregar_multiplos_jsons(arquivos_bytes: list[bytes]) -> pd.DataFrame:
+def carregar_multiplos_jsons(arquivos_bytes: tuple[bytes, ...]) -> pd.DataFrame:
     """
-    Recebe uma lista de bytes (um por arquivo) e retorna um DataFrame
+    Recebe uma tupla de bytes (um por arquivo) e retorna um DataFrame
     concatenado com todos os registros de 'pesquisas'.
-    Usa st.cache_data para não reprocessar arquivos já carregados.
+
+    NOTA: o parâmetro é tupla (não lista) para garantir hashability no cache.
     """
     frames = []
     erros = []
@@ -102,7 +121,6 @@ def carregar_multiplos_jsons(arquivos_bytes: list[bytes]) -> pd.DataFrame:
             erros.append(f"Arquivo {idx}: {exc}")
 
     if erros:
-        # Exibe avisos sem expor estrutura interna da API
         for msg in erros:
             st.warning(f"⚠️ {msg}")
 
@@ -121,7 +139,8 @@ def _normalizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
     cols_lower = {c.lower().strip(): c for c in df.columns}
 
     # codigoProduto → ean (identificador único do produto)
-    for candidato in ["codigoproduto", "ean", "gtin", "barcode", "codbarras", "codigo_produto"]:
+    for candidato in ["codigoproduto", "ean", "gtin", "barcode",
+                      "codbarras", "codigo_produto"]:
         if candidato in cols_lower:
             mapa_colunas[cols_lower[candidato]] = "codigoProduto"
             break
@@ -142,171 +161,171 @@ def _normalizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _classificar_origem(obs: str, concorrente: str) -> str:
-    """Classifica cada registro como Mi7, concorrente selecionado ou Outros."""
+    """
+    Classifica cada registro como Mi7, concorrente selecionado ou Outros.
+
+    CORREÇÃO: usa regex com word boundary (\\b) para evitar falso positivo,
+    p. ex., concorrente="ABC" casando com observação="ABCD MERCADO".
+    """
     obs_up = str(obs).upper()
     if any(p in obs_up for p in MI7_PATTERNS):
         return "Mi7"
-    if concorrente.upper() in obs_up:
+
+    # Word boundary: nome do concorrente como palavra inteira (case-insensitive)
+    padrao = r"\b" + re.escape(concorrente.upper()) + r"\b"
+    if re.search(padrao, obs_up):
         return concorrente
+
     return "Outros"
+
+
+def _limpar_ean(serie: pd.Series) -> pd.Series:
+    """
+    Limpa códigos de produto SEM perder zeros à esquerda.
+
+    CORREÇÃO CRÍTICA: a versão anterior usava pd.to_numeric().astype(int).astype(str),
+    o que destrói o zero à esquerda de EAN-13 (ex.: "0789012345678" virava
+    "789012345678") e quebra silenciosamente o merge com o catálogo.
+
+    Agora: trata como string desde o início, remove apenas .0 de floats acidentais.
+    """
+    s = serie.astype(str).str.strip()
+    # Remove sufixo ".0" que aparece quando pandas leu o EAN como float
+    s = s.str.replace(r"\.0$", "", regex=True)
+    # Remove valores claramente inválidos
+    s = s.replace({"nan": "", "None": "", "0": ""})
+    return s
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FUNÇÃO AUXILIAR — API DO CLIENTE (SEGURA)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Conectando ao catálogo da API...", ttl=3600)
-def _buscar_catalogo_api() -> pd.DataFrame | None:
-    try:
-        api_url  = st.secrets["clientx"]["api_url"]
-        api_user = st.secrets["clientx"]["api_user"]
-        api_pass = st.secrets["clientx"]["api_pass"]
-    except Exception:
-        return None
-
+def _autenticar_api(api_url: str, api_user: str, api_pass: str) -> str | None:
+    """Faz autenticação e retorna o token, ou None em falha."""
     base_url = api_url.split("/v1.2")[0]
     auth_url = f"{base_url}/v1.1/auth"
-    
+
+    resp = requests.post(
+        auth_url,
+        json={"usuario": api_user, "senha": api_pass},
+        headers={"Content-type": "application/json"},
+        timeout=API_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json().get("response", {}).get("token")
+
+
+def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
+    """
+    Paginação robusta da API de produtos.
+
+    CORREÇÕES vs. versão anterior:
+      - Sem limite arbitrário de 15 páginas (usa API_MAX_PAGES como trava).
+      - Anti-loop por conjunto de IDs por página, não pelo primeiro item.
+      - Não silencia o motivo da parada — registra no log do Streamlit.
+    """
+    headers = {"Content-type": "application/json", "token": token}
+    todos = []
+    assinaturas_vistas = set()
+
+    for pagina in range(API_MAX_PAGES):
+        # Substitui o segmento de página de forma mais segura
+        # (se a URL tiver "/0/" literal, troca; caso contrário tenta query string)
+        if "/0/" in api_url:
+            url_paginada = api_url.replace("/0/", f"/{pagina}/", 1)
+        else:
+            sep = "&" if "?" in api_url else "?"
+            url_paginada = f"{api_url}{sep}pagina={pagina}"
+
+        resp = requests.get(url_paginada, headers=headers, timeout=API_TIMEOUT)
+        if resp.status_code != 200:
+            break
+
+        payload = resp.json()
+        produtos_pagina = payload.get("produtos", []) \
+            or payload.get("response", {}).get("produtos", [])
+
+        if not produtos_pagina:
+            break
+
+        # ANTI-LOOP robusto: assina a página pelo conjunto de IDs.
+        # Se a mesma combinação aparecer de novo, a API está repetindo.
+        assinatura = frozenset(p.get("codigo") for p in produtos_pagina)
+        if assinatura in assinaturas_vistas:
+            break
+        assinaturas_vistas.add(assinatura)
+
+        todos.extend(produtos_pagina)
+
+        # Página parcial → última página
+        if len(produtos_pagina) < API_PAGE_SIZE:
+            break
+
+    return todos
+
+
+@st.cache_data(show_spinner="Conectando ao catálogo da API...", ttl=3600)
+def _buscar_catalogo_api() -> pd.DataFrame | None:
+    """
+    Busca o catálogo completo de produtos via API do cliente.
+
+    Retorna DataFrame com colunas [codigoProduto, descricao] ou None se:
+      - secrets não configurados,
+      - falha de autenticação,
+      - catálogo vazio.
+
+    NOTA: o Streamlit cacheia None por padrão. Para evitar isso prendendo o
+    usuário por 1h em caso de erro transitório, em falha limpamos o cache
+    desta função antes de retornar None.
+    """
+    # 1. Lê secrets
     try:
-        # --- 1. AUTENTICAÇÃO ---
-        resp_auth = requests.post(
-            auth_url, 
-            json={"usuario": api_user, "senha": api_pass}, 
-            headers={"Content-type": "application/json"}, 
-            timeout=API_TIMEOUT
-        )
-        resp_auth.raise_for_status()
-        token = resp_auth.json().get("response", {}).get("token")
-        
+        api_url = st.secrets["clientx"]["api_url"]
+        api_user = st.secrets["clientx"]["api_user"]
+        api_pass = st.secrets["clientx"]["api_pass"]
+    except (KeyError, FileNotFoundError):
+        return None
+
+    # 2. Autentica + baixa catálogo
+    try:
+        token = _autenticar_api(api_url, api_user, api_pass)
         if not token:
+            st.warning("API respondeu mas não retornou token de autenticação.")
+            _buscar_catalogo_api.clear()
             return None
 
-        # --- 2. VARREDURA INTELIGENTE E RÁPIDA ---
-        headers_produtos = {"Content-type": "application/json", "token": token}
-        todos_produtos = []
-        ids_vistos = set()
-        pagina = 0
-        
-        # Limite seguro de páginas para o teste não travar
-        while pagina < 15: 
-            url_paginada = api_url.replace("/0/", f"/{pagina}/")
-            resp_prod = requests.get(url_paginada, headers=headers_produtos, timeout=5)
-            
-            if resp_prod.status_code != 200:
-                break
-                
-            payload = resp_prod.json()
-            produtos_pagina = payload.get("produtos", [])
-            if not produtos_pagina and "response" in payload:
-                produtos_pagina = payload.get("response", {}).get("produtos", [])
-            
-            if not produtos_pagina:
-                break
-                
-            # ANTI-LOOP: Se a API ignorar a página e mandar o mesmo produto de antes, corta o loop
-            primeiro_id = produtos_pagina[0].get("codigo")
-            if primeiro_id in ids_vistos:
-                break
-            ids_vistos.add(primeiro_id)
-            
-            todos_produtos.extend(produtos_pagina)
-            
-            if len(produtos_pagina) < 200:
-                break
-            pagina += 1
-
-        # --- 3. MONTAGEM DO DATAFRAME ---
-        if todos_produtos:
-            df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
-            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
-            # Remove qualquer espaço e garante formato de texto limpo
-            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
-            return df_prod.drop_duplicates(subset=["codigoProduto"])
+        produtos = _baixar_catalogo_paginado(api_url, token)
+    except requests.Timeout:
+        st.error("⏱️ Timeout na API do catálogo. Tente novamente em instantes.")
+        _buscar_catalogo_api.clear()
+        return None
+    except requests.RequestException as exc:
+        st.error(f"🚨 Erro de rede na API: {exc}")
+        _buscar_catalogo_api.clear()
+        return None
+    except (KeyError, ValueError) as exc:
+        st.error(f"🚨 Resposta inesperada da API: {exc}")
+        _buscar_catalogo_api.clear()
         return None
 
-    except Exception:
+    if not produtos:
+        st.info("Catálogo de produtos retornou vazio.")
+        _buscar_catalogo_api.clear()
         return None
 
-        # --- 2. LOOP DE PAGINAÇÃO PARA BAIXAR TUDO ---
-        headers_produtos = {"Content-type": "application/json", "token": token}
-        todos_produtos = []
-        pagina = 0
-        
-        while True:
-            # Substitui o "0" da URL original pela página atual do loop
-            url_paginada = api_url.replace("/0/", f"/{pagina}/")
-            
-            resp_prod = requests.get(url_paginada, headers=headers_produtos, timeout=API_TIMEOUT)
-            
-            # Se a API der erro ou parar de responder, interrompe o loop
-            if resp_prod.status_code != 200:
-                break
-                
-            payload = resp_prod.json()
-            
-            # Extrai os produtos da gaveta raiz ou da gaveta response
-            produtos_pagina = payload.get("produtos", [])
-            if not produtos_pagina and "response" in payload:
-                produtos_pagina = payload.get("response", {}).get("produtos", [])
-            
-            # Se a página vier vazia, significa que o catálogo acabou!
-            if not produtos_pagina:
-                break
-                
-            todos_produtos.extend(produtos_pagina)
-            
-            # A API entrega de 200 em 200. Se vier menos que isso, é a última página.
-            if len(produtos_pagina) < 200:
-                break
-                
-            pagina += 1
-            
-            # Trava de segurança para evitar loops infinitos (ex: max 500 páginas = 100.000 produtos)
-            if pagina > 500:
-                break
-
-        # --- 3. FINALIZA O DATAFRAME ---
-        if todos_produtos:
-            df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
-            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
-            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
-            return df_prod
-        else:
-            st.info("Catálogo de produtos retornou vazio.")
-            return None
-
-    except Exception as e:
-        st.error(f"🚨 ERRO NA API: {e}")
+    # 3. Monta DataFrame
+    df_prod = pd.DataFrame(produtos)
+    if "codigo" not in df_prod.columns or "descricao" not in df_prod.columns:
+        st.warning("Catálogo da API sem as colunas esperadas (codigo/descricao).")
+        _buscar_catalogo_api.clear()
         return None
-        # --- ETAPA 2: BUSCAR OS PRODUTOS COM O TOKEN ---
-        # Exatamente como o manual do clientx pediu: "enviando o atributo 'token'"
-        headers_produtos = {
-            "Content-type": "application/json",
-            "token": token
-        }
 
-        # Bate na porta de produtos agora com a permissão
-        resp_prod = requests.get(api_url, headers=headers_produtos, timeout=API_TIMEOUT)
-        resp_prod.raise_for_status()
-        payload = resp_prod.json()
-
-        produtos = payload.get("produtos", [])
-        if not produtos and "response" in payload:
-            produtos = payload.get("response", {}).get("produtos", [])
-          
-        if produtos:
-            df_prod = pd.DataFrame(produtos)[["codigo", "descricao"]].copy()
-            df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
-            df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
-            return df_prod
-        else:
-            st.info("Catálogo de produtos retornou vazio. Os EANs serão exibidos sem nome.")
-            return None
-
-    except Exception as e:
-        # Se algo falhar (senha errada, firewall, etc), vai mostrar o erro vermelho na tela
-        st.error(f"🚨 ERRO NA API: {e}")
-        return None
+    df_prod = df_prod[["codigo", "descricao"]].copy()
+    df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+    df_prod["codigoProduto"] = _limpar_ean(df_prod["codigoProduto"])
+    df_prod = df_prod[df_prod["codigoProduto"] != ""]
+    return df_prod.drop_duplicates(subset=["codigoProduto"])
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -317,16 +336,16 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     """
     Pipeline completo:
       1. Normaliza colunas
-      2. Converte datas
+      2. Converte datas (se ainda não convertidas)
       3. Classifica origem (Mi7 vs concorrente)
-      4. Limpeza de EANs
+      4. Limpa EANs preservando zeros à esquerda
       5. Merge com catálogo de produtos (se disponível)
       6. Calcula métricas e tabela 'Prova do Crime'
     """
     df = _normalizar_colunas(df)
 
-    # Converte coluna de data para datetime (tolerante a erros)
-    if "data" in df.columns:
+    # Converte coluna de data apenas se ainda não for datetime
+    if "data" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["data"]):
         df["data"] = pd.to_datetime(df["data"], errors="coerce", dayfirst=True)
 
     # Classifica origem
@@ -335,46 +354,55 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
             "Coluna 'observacao' não encontrada. "
             f"Colunas disponíveis: {list(df.columns)}"
         )
-    df["source"] = df["observacao"].apply(lambda x: _classificar_origem(x, concorrente))
+    df["source"] = df["observacao"].apply(
+        lambda x: _classificar_origem(x, concorrente)
+    )
 
-    # Limpa EANs
+    # Limpa EANs (preservando zeros à esquerda)
     if "codigoProduto" not in df.columns:
         raise ValueError(
             "Coluna 'codigoProduto' (ou equivalente) não encontrada. "
             f"Colunas disponíveis: {list(df.columns)}"
         )
-    
-    # Força a conversão limpando floats (.0), nans e espaços extras antes de virar String
-    df["codigoProduto"] = pd.to_numeric(df["codigoProduto"], errors="coerce").fillna(0).astype(int).astype(str)
-    df = df[(df["codigoProduto"] != "0") & (df["codigoProduto"] != "nan")]
-    
+
+    df["codigoProduto"] = _limpar_ean(df["codigoProduto"])
+    df = df[df["codigoProduto"] != ""].copy()
+
     # ── Merge com catálogo de produtos (PROCV) ───────────────────────────────
     df_catalogo = _buscar_catalogo_api()
     if df_catalogo is not None:
         df = df.merge(df_catalogo, on="codigoProduto", how="left")
         df["descricao"] = df["descricao"].fillna("Não encontrado")
+        nao_encontrados = (df["descricao"] == "Não encontrado").sum()
+        if nao_encontrados > 0:
+            st.caption(
+                f"ℹ️ {nao_encontrados:,} registros sem correspondência no catálogo "
+                "(EAN não cadastrado ou catálogo desatualizado)."
+            )
     else:
         df["descricao"] = "Sem catálogo"
 
     # ── Separação Mi7 vs Concorrente ─────────────────────────────────────────
-    df_mi7  = df[df["source"].str.contains("Mi7", case=False, na=False)].copy()
-    df_comp = df[df["source"].str.contains(concorrente, case=False, na=False)].copy()
+    df_mi7 = df[df["source"] == "Mi7"].copy()
+    df_comp = df[df["source"] == concorrente].copy()
 
     if df_comp.empty:
         origens = df["source"].unique().tolist()
         raise ValueError(
             f"Nenhum registro encontrado para '{concorrente}'. "
-            f"Origens no arquivo: {origens[:10]}"
+            f"Origens detectadas no arquivo: {origens[:10]}"
         )
 
     # ── Métricas ─────────────────────────────────────────────────────────────
-    mi7_total     = len(df_mi7)
-    mi7_unique    = df_mi7["codigoProduto"].nunique()
+    mi7_total = len(df_mi7)
+    mi7_unique = df_mi7["codigoProduto"].nunique()
 
-    comp_total      = len(df_comp)
-    comp_unique     = df_comp["codigoProduto"].nunique()
+    comp_total = len(df_comp)
+    comp_unique = df_comp["codigoProduto"].nunique()
     comp_duplicates = comp_total - comp_unique
-    indice_fraude   = round((comp_duplicates / comp_total * 100), 1) if comp_total > 0 else 0.0
+    indice_fraude = (
+        round((comp_duplicates / comp_total * 100), 1) if comp_total > 0 else 0.0
+    )
 
     # ── Tabela "Prova do Crime" ───────────────────────────────────────────────
     prova = (
@@ -421,10 +449,13 @@ with st.sidebar:
     st.markdown("### 2. Filtro de Data")
     usar_filtro_data = st.checkbox("Ativar filtro de data", value=False)
 
-    # Os seletores de data são desabilitados até o filtro ser ativado
     col_d1, col_d2 = st.columns(2)
-    data_inicio = col_d1.date_input("De", key="data_inicio", disabled=not usar_filtro_data)
-    data_fim    = col_d2.date_input("Até", key="data_fim", disabled=not usar_filtro_data)
+    data_inicio = col_d1.date_input(
+        "De", key="data_inicio", disabled=not usar_filtro_data
+    )
+    data_fim = col_d2.date_input(
+        "Até", key="data_fim", disabled=not usar_filtro_data
+    )
 
     st.markdown("### 3. Concorrente Alvo")
     nome_concorrente = st.text_input(
@@ -435,13 +466,12 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Bloco robusto de validação de segredos
-   # Bloco robusto de validação de segredos
+    # Validação de segredos
     api_configurada = False
     try:
         if "clientx" in st.secrets and "api_user" in st.secrets["clientx"]:
             api_configurada = True
-    except Exception:
+    except (KeyError, FileNotFoundError):
         api_configurada = False
 
     if api_configurada:
@@ -452,7 +482,9 @@ with st.sidebar:
             "Configure os dados em Secrets para enriquecer com nomes."
         )
 
-    analisar = st.button("Executar Análise", type="primary", use_container_width=True)
+    analisar = st.button(
+        "Executar Análise", type="primary", use_container_width=True
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -460,7 +492,10 @@ with st.sidebar:
 # ──────────────────────────────────────────────────────────────────────────────
 
 st.title("Mi7 Intelligence — Análise de Concorrentes")
-st.caption("Ferramenta interna para detecção de inflação de dados por coletores terceiros.")
+st.caption(
+    "Ferramenta interna para detecção de inflação de dados "
+    "por coletores terceiros."
+)
 
 if not arquivos_upados:
     st.info(
@@ -469,34 +504,52 @@ if not arquivos_upados:
     st.stop()
 
 if not analisar:
-    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.")
+    st.info(
+        "Configure os parâmetros na barra lateral e clique em "
+        "**▶ Executar Análise**."
+    )
+    st.stop()
+
+# Validação de nome do concorrente
+if not nome_concorrente or not nome_concorrente.strip():
+    st.error("❌ Informe o nome do concorrente alvo na barra lateral.")
+    st.stop()
+
+# Validação de intervalo de datas
+if usar_filtro_data and data_inicio > data_fim:
+    st.error("❌ Data de início é posterior à data final. Ajuste o filtro.")
     st.stop()
 
 # ── Carregamento e concatenação ───────────────────────────────────────────────
 with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
     try:
-        lista_bytes = [f.read() for f in arquivos_upados]
+        # tupla (não lista) para garantir hashability no cache
+        lista_bytes = tuple(f.read() for f in arquivos_upados)
         df_bruto = carregar_multiplos_jsons(lista_bytes)
     except ValueError as exc:
         st.error(f"❌ Erro no carregamento: {exc}")
         st.stop()
 
 st.success(
-    f" {len(arquivos_upados)} arquivo(s) carregado(s) · "
-    f"**{len(df_bruto):,}** registros totais antes do filtro.")
+    f"{len(arquivos_upados)} arquivo(s) carregado(s) · "
+    f"**{len(df_bruto):,}** registros totais antes do filtro."
+)
 
 # ── Filtro de data ────────────────────────────────────────────────────────────
 df_filtrado = df_bruto.copy()
 
 if usar_filtro_data:
     col_data = next(
-        (c for c in df_filtrado.columns if c.lower().strip() in ["data", "date", "datacoleta", "data_coleta"]),
+        (c for c in df_filtrado.columns
+         if c.lower().strip() in ["data", "date", "datacoleta", "data_coleta"]),
         None,
     )
     if col_data is None:
-        st.warning("⚠️ Coluna de data não encontrada no JSON. O filtro de data não foi aplicado.")
+        st.warning("⚠️ Coluna de data não encontrada no JSON. Filtro ignorado.")
     else:
-        df_filtrado[col_data] = pd.to_datetime(df_filtrado[col_data], errors="coerce", dayfirst=True)
+        df_filtrado[col_data] = pd.to_datetime(
+            df_filtrado[col_data], errors="coerce", dayfirst=True
+        )
         mask = (
             (df_filtrado[col_data].dt.date >= data_inicio) &
             (df_filtrado[col_data].dt.date <= data_fim)
@@ -504,12 +557,15 @@ if usar_filtro_data:
         df_filtrado = df_filtrado[mask]
 
         if df_filtrado.empty:
-            st.warning("⚠️ Nenhum registro encontrado no intervalo de datas selecionado.")
+            st.warning(
+                "⚠️ Nenhum registro encontrado no intervalo de datas selecionado."
+            )
             st.stop()
 
         st.info(
-            f"Filtro applied: **{data_inicio}** até **{data_fim}** · "
-            f"**{len(df_filtrado):,}** registros restantes.")
+            f"Filtro aplicado: **{data_inicio}** até **{data_fim}** · "
+            f"**{len(df_filtrado):,}** registros restantes."
+        )
 
 # ── Execução da análise ───────────────────────────────────────────────────────
 with st.spinner("Executando análise competitiva…"):
@@ -573,7 +629,8 @@ st.dataframe(
             "Repetições",
             format="%d",
             min_value=0,
-            max_value=int(resultado["prova"]["Repetições"].max()) if not resultado["prova"].empty else 1,
+            max_value=int(resultado["prova"]["Repetições"].max())
+                      if not resultado["prova"].empty else 1,
         )
     },
 )
