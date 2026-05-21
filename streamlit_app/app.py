@@ -218,36 +218,81 @@ def _autenticar_api(api_url: str, api_user: str, api_pass: str) -> str | None:
 
 def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
     """
-    Paginação robusta da API de produtos.
+    Paginação cursor-based (RP Info): o segmento /{LastID}/ na URL define
+    o ponto de partida; a API retorna até API_PAGE_SIZE produtos com código
+    estritamente maior que LastID, ordenados crescentemente.
 
-    CORREÇÕES vs. versão anterior:
-      - Sem limite arbitrário de 15 páginas (usa API_MAX_PAGES como trava).
-      - Anti-loop por conjunto de IDs por página, não pelo primeiro item.
-      - Não silencia o motivo da parada — registra no log do Streamlit.
+    Inicia em "0" para pegar do começo do catálogo.
     """
     headers = {"Content-type": "application/json", "token": token}
     todos = []
-    assinaturas_vistas = set()
+    vistos = set()           # dedup defensivo (caso API use >= em vez de >)
+    last_id = "0"
 
-    for pagina in range(API_MAX_PAGES):
-        # Substitui o segmento de página de forma mais segura
-        # (se a URL tiver "/0/" literal, troca; caso contrário tenta query string)
+    for iteracao in range(API_MAX_PAGES):
+        # Substitui o cursor na URL. O 'count=1' protege contra colisões
+        # caso "/0/" aparecesse em outro lugar da URL (no Super Irani não
+        # acontece, mas é defesa barata).
         if "/0/" in api_url:
-            url_paginada = api_url.replace("/0/", f"/{pagina}/", 1)
+            url_paginada = api_url.replace("/0/", f"/{last_id}/", 1)
         else:
-            sep = "&" if "?" in api_url else "?"
-            url_paginada = f"{api_url}{sep}pagina={pagina}"
+            url_paginada = f"{api_url.rstrip('/')}/{last_id}"
 
-        resp = requests.get(url_paginada, headers=headers, timeout=API_TIMEOUT)
-        if resp.status_code != 200:
+        try:
+            resp = requests.get(url_paginada, headers=headers, timeout=API_TIMEOUT)
+        except requests.Timeout:
+            print(f"⏱️  Timeout no cursor {last_id}. Encerrando paginação.")
+            break
+        except requests.RequestException as exc:
+            print(f"🚨 Erro de rede no cursor {last_id}: {exc}")
             break
 
-        payload = resp.json()
-        produtos_pagina = payload.get("produtos", []) \
-            or payload.get("response", {}).get("produtos", [])
+        if resp.status_code != 200:
+            print(f"⚠️  Status {resp.status_code} no cursor {last_id}. "
+                  f"Resposta: {resp.text[:200]}")
+            break
 
+        try:
+            payload = resp.json()
+        except ValueError:
+            print(f"⚠️  Resposta não-JSON no cursor {last_id}.")
+            break
+
+        produtos_pagina = payload.get("produtos") \
+            or payload.get("response", {}).get("produtos", [])
         if not produtos_pagina:
             break
+
+        # Dedup defensivo: filtra registros já vistos
+        novos = [p for p in produtos_pagina
+                 if p.get("codigo") not in vistos]
+        for p in novos:
+            vistos.add(p.get("codigo"))
+        todos.extend(novos)
+
+        # Log de progresso a cada 5 lotes (para não poluir o output do Streamlit)
+        if iteracao % 5 == 0:
+            print(f"📥 Lote {iteracao + 1}: cursor={last_id} → "
+                  f"+{len(novos)} novos (total: {len(todos):,})")
+
+        # Define o próximo cursor a partir do último código do lote
+        codigo_raw = produtos_pagina[-1].get("codigo")
+        if codigo_raw is None:
+            print(f"⚠️  Último produto sem 'codigo'. Encerrando.")
+            break
+
+        novo_last_id = str(codigo_raw)
+        if novo_last_id == last_id:
+            # Cursor não avançou → API repetiu o mesmo lote
+            break
+        last_id = novo_last_id
+
+        # Lote parcial = última página
+        if len(produtos_pagina) < API_PAGE_SIZE:
+            break
+
+    print(f"✅ Catálogo carregado: {len(todos):,} produtos únicos.")
+    return todos
 
         # ANTI-LOOP robusto: assina a página pelo conjunto de IDs.
         # Se a mesma combinação aparecer de novo, a API está repetindo.
