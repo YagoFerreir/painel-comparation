@@ -155,7 +155,7 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
 # FUNÇÃO AUXILIAR — API DO CLIENTE (SEGURA)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Baixando catálogo completo (são várias páginas, leva uns 30 seg na 1ª vez)...", ttl=3600)
+@st.cache_data(show_spinner="Conectando ao catálogo da API...", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
     try:
         api_url  = st.secrets["clientx"]["api_url"]
@@ -168,7 +168,7 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
     auth_url = f"{base_url}/v1.1/auth"
     
     try:
-        # --- 1. PEGA O TOKEN ---
+        # --- 1. AUTENTICAÇÃO ---
         resp_auth = requests.post(
             auth_url, 
             json={"usuario": api_user, "senha": api_pass}, 
@@ -179,50 +179,52 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
         token = resp_auth.json().get("response", {}).get("token")
         
         if not token:
-            st.error("🚨 Login feito, mas sem token retornado.")
             return None
 
-        # --- 2. MULTI-THREADING PARA BAIXAR TUDO RÁPIDO ---
+        # --- 2. VARREDURA INTELIGENTE E RÁPIDA ---
         headers_produtos = {"Content-type": "application/json", "token": token}
         todos_produtos = []
-
-        # Função auxiliar que os "trabalhadores" vão usar para pegar 1 página
-        def fetch_page(pagina):
+        ids_vistos = set()
+        pagina = 0
+        
+        # Limite seguro de páginas para o teste não travar
+        while pagina < 15: 
             url_paginada = api_url.replace("/0/", f"/{pagina}/")
-            try:
-                resp = requests.get(url_paginada, headers=headers_produtos, timeout=10)
-                if resp.status_code == 200:
-                    payload = resp.json()
-                    prods = payload.get("produtos", [])
-                    if not prods and "response" in payload:
-                        prods = payload.get("response", {}).get("produtos", [])
-                    return prods
-            except Exception:
-                return []
-            return []
+            resp_prod = requests.get(url_paginada, headers=headers_produtos, timeout=5)
+            
+            if resp_prod.status_code != 200:
+                break
+                
+            payload = resp_prod.json()
+            produtos_pagina = payload.get("produtos", [])
+            if not produtos_pagina and "response" in payload:
+                produtos_pagina = payload.get("response", {}).get("produtos", [])
+            
+            if not produtos_pagina:
+                break
+                
+            # ANTI-LOOP: Se a API ignorar a página e mandar o mesmo produto de antes, corta o loop
+            primeiro_id = produtos_pagina[0].get("codigo")
+            if primeiro_id in ids_vistos:
+                break
+            ids_vistos.add(primeiro_id)
+            
+            todos_produtos.extend(produtos_pagina)
+            
+            if len(produtos_pagina) < 200:
+                break
+            pagina += 1
 
-        # Dispara 20 requisições simultâneas. Tenta puxar até a página 200 (40.000 produtos)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            resultados = list(executor.map(fetch_page, range(200)))
-
-        # Junta todas as páginas que voltaram com dados
-        for prods in resultados:
-            if prods:
-                todos_produtos.extend(prods)
-
-        # --- 3. FINALIZA O DATAFRAME ---
+        # --- 3. MONTAGEM DO DATAFRAME ---
         if todos_produtos:
             df_prod = pd.DataFrame(todos_produtos)[["codigo", "descricao"]].copy()
             df_prod.rename(columns={"codigo": "codigoProduto"}, inplace=True)
+            # Remove qualquer espaço e garante formato de texto limpo
             df_prod["codigoProduto"] = df_prod["codigoProduto"].astype(str).str.strip()
-            # Remove duplicatas caso a API retorne páginas repetidas
             return df_prod.drop_duplicates(subset=["codigoProduto"])
-        else:
-            st.info("Catálogo de produtos retornou vazio.")
-            return None
+        return None
 
-    except Exception as e:
-        st.error(f"🚨 ERRO NA API: {e}")
+    except Exception:
         return None
 
         # --- 2. LOOP DE PAGINAÇÃO PARA BAIXAR TUDO ---
@@ -336,14 +338,15 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     df["source"] = df["observacao"].apply(lambda x: _classificar_origem(x, concorrente))
 
     # Limpa EANs
-    if "codigoProduto" not in df.columns:
+   if "codigoProduto" not in df.columns:
         raise ValueError(
             "Coluna 'codigoProduto' (ou equivalente) não encontrada. "
             f"Colunas disponíveis: {list(df.columns)}"
         )
-    df["codigoProduto"] = df["codigoProduto"].astype(str).str.strip()
-    df = df[df["codigoProduto"].notna() & (df["codigoProduto"] != "") & (df["codigoProduto"] != "nan")]
-
+    
+    # Força a conversão limpando floats (.0), nans e espaços extras antes de virar String
+    df["codigoProduto"] = pd.to_numeric(df["codigoProduto"], errors="coerce").fillna(0).astype(int).astype(str)
+    df = df[(df["codigoProduto"] != "0") & (df["codigoProduto"] != "nan")]
     
     # ── Merge com catálogo de produtos (PROCV) ───────────────────────────────
     df_catalogo = _buscar_catalogo_api()
