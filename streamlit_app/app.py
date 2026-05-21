@@ -14,7 +14,7 @@ Segurança: NENHUMA credencial está neste arquivo.
 CHANGELOG da revisão (2026-05):
   - Removido código morto/duplicado em _buscar_catalogo_api
   - Corrigido bug de perda de zero à esquerda em EANs
-  - Paginação da API mais robusta (sem limite arbitrário de 15 páginas)
+  - Paginação da API mais robusta usando cursor dinâmico (LastID estruturado)
   - Anti-loop baseado em conjunto de IDs, não no primeiro item
   - Classificador de origem com match por palavra (regex word boundary)
   - Validação de intervalo de datas
@@ -172,7 +172,7 @@ def _classificar_origem(obs: str, concorrente: str) -> str:
         return "Mi7"
 
     # Word boundary: nome do concorrente como palavra inteira (case-insensitive)
-    padrao = r"\b" + re.escape(concorrente.upper()) + r"\b"
+    padrao = r"\b" + re.escape(conconcorrente := concorrente.upper()) + r"\b"
     if re.search(padrao, obs_up):
         return concorrente
 
@@ -183,11 +183,7 @@ def _limpar_ean(serie: pd.Series) -> pd.Series:
     """
     Limpa códigos de produto SEM perder zeros à esquerda.
 
-    CORREÇÃO CRÍTICA: a versão anterior usava pd.to_numeric().astype(int).astype(str),
-    o que destrói o zero à esquerda de EAN-13 (ex.: "0789012345678" virava
-    "789012345678") e quebra silenciosamente o merge com o catálogo.
-
-    Agora: trata como string desde o início, remove apenas .0 de floats acidentais.
+    CORREÇÃO CRÍTICA: trata como string desde o início, remove apenas .0 de floats acidentais.
     """
     s = serie.astype(str).str.strip()
     # Remove sufixo ".0" que aparece quando pandas leu o EAN como float
@@ -229,12 +225,15 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
     vistos = set()           # dedup defensivo (caso API use >= em vez de >)
     last_id = "0"
 
+    # Fatiamento estruturado da URL antes de iniciar a paginação.
+    # Ex: http://.../listaprodutos/0/detalhado -> ['http://.../listaprodutos', 'detalhado']
+    parts = api_url.split("/0/")
+    usa_template = len(parts) == 2
+
     for iteracao in range(API_MAX_PAGES):
-        # Substitui o cursor na URL. O 'count=1' protege contra colisões
-        # caso "/0/" aparecesse em outro lugar da URL (no Super Irani não
-        # acontece, mas é defesa barata).
-        if "/0/" in api_url:
-            url_paginada = api_url.replace("/0/", f"/{last_id}/", 1)
+        # Monta a URL injetando o cursor dinâmico acumulado no meio ou no final
+        if usa_template:
+            url_paginada = f"{parts[0]}/{last_id}/{parts[1]}"
         else:
             url_paginada = f"{api_url.rstrip('/')}/{last_id}"
 
@@ -264,8 +263,7 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
             break
 
         # Dedup defensivo: filtra registros já vistos
-        novos = [p for p in produtos_pagina
-                 if p.get("codigo") not in vistos]
+        novos = [p for p in produtos_pagina if p.get("codigo") not in vistos]
         for p in novos:
             vistos.add(p.get("codigo"))
         todos.extend(novos)
@@ -275,10 +273,10 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
             print(f"📥 Lote {iteracao + 1}: cursor={last_id} → "
                   f"+{len(novos)} novos (total: {len(todos):,})")
 
-        # Define o próximo cursor a partir do último código do lote
+        # Define o próximo cursor a partir do último código do lote retornado
         codigo_raw = produtos_pagina[-1].get("codigo")
         if codigo_raw is None:
-            print(f"⚠️  Último produto sem 'codigo'. Encerrando.")
+            print("⚠️  Último produto sem 'codigo'. Encerrando.")
             break
 
         novo_last_id = str(codigo_raw)
@@ -287,26 +285,11 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
             break
         last_id = novo_last_id
 
-        # Lote parcial = última página
+        # Lote parcial = última página alcançada
         if len(produtos_pagina) < API_PAGE_SIZE:
             break
 
     print(f"✅ Catálogo carregado: {len(todos):,} produtos únicos.")
-    return todos
-
-        # ANTI-LOOP robusto: assina a página pelo conjunto de IDs.
-        # Se a mesma combinação aparecer de novo, a API está repetindo.
-        assinatura = frozenset(p.get("codigo") for p in produtos_pagina)
-        if assinatura in assinaturas_vistas:
-            break
-        assinaturas_vistas.add(assinatura)
-
-        todos.extend(produtos_pagina)
-
-        # Página parcial → última página
-        if len(produtos_pagina) < API_PAGE_SIZE:
-            break
-
     return todos
 
 
@@ -314,15 +297,7 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
 def _buscar_catalogo_api() -> pd.DataFrame | None:
     """
     Busca o catálogo completo de produtos via API do cliente.
-
-    Retorna DataFrame com colunas [codigoProduto, descricao] ou None se:
-      - secrets não configurados,
-      - falha de autenticação,
-      - catálogo vazio.
-
-    NOTA: o Streamlit cacheia None por padrão. Para evitar isso prendendo o
-    usuário por 1h em caso de erro transitório, em falha limpamos o cache
-    desta função antes de retornar None.
+    Retorna DataFrame com colunas [codigoProduto, descricao] ou None.
     """
     # 1. Lê secrets
     try:
@@ -379,13 +354,7 @@ def _buscar_catalogo_api() -> pd.DataFrame | None:
 
 def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     """
-    Pipeline completo:
-      1. Normaliza colunas
-      2. Converte datas (se ainda não convertidas)
-      3. Classifica origem (Mi7 vs concorrente)
-      4. Limpa EANs preservando zeros à esquerda
-      5. Merge com catálogo de produtos (se disponível)
-      6. Calcula métricas e tabela 'Prova do Crime'
+    Pipeline completo de processamento de dados e cruzamento.
     """
     df = _normalizar_colunas(df)
 
@@ -399,9 +368,7 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
             "Coluna 'observacao' não encontrada. "
             f"Colunas disponíveis: {list(df.columns)}"
         )
-    df["source"] = df["observacao"].apply(
-        lambda x: _classificar_origem(x, concorrente)
-    )
+    df["source"] = df["observacao"].apply(lambda x: _classificar_origem(x, concorrente))
 
     # Limpa EANs (preservando zeros à esquerda)
     if "codigoProduto" not in df.columns:
@@ -445,9 +412,7 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     comp_total = len(df_comp)
     comp_unique = df_comp["codigoProduto"].nunique()
     comp_duplicates = comp_total - comp_unique
-    indice_fraude = (
-        round((comp_duplicates / comp_total * 100), 1) if comp_total > 0 else 0.0
-    )
+    indice_fraude = round((comp_duplicates / comp_total * 100), 1) if comp_total > 0 else 0.0
 
     # ── Tabela "Prova do Crime" ───────────────────────────────────────────────
     prova = (
@@ -495,12 +460,8 @@ with st.sidebar:
     usar_filtro_data = st.checkbox("Ativar filtro de data", value=False)
 
     col_d1, col_d2 = st.columns(2)
-    data_inicio = col_d1.date_input(
-        "De", key="data_inicio", disabled=not usar_filtro_data
-    )
-    data_fim = col_d2.date_input(
-        "Até", key="data_fim", disabled=not usar_filtro_data
-    )
+    data_inicio = col_d1.date_input("De", key="data_inicio", disabled=not usar_filtro_data)
+    data_fim = col_d2.date_input("Até", key="data_fim", disabled=not usar_filtro_data)
 
     st.markdown("### 3. Concorrente Alvo")
     nome_concorrente = st.text_input(
@@ -527,9 +488,7 @@ with st.sidebar:
             "Configure os dados em Secrets para enriquecer com nomes."
         )
 
-    analisar = st.button(
-        "Executar Análise", type="primary", use_container_width=True
-    )
+    analisar = st.button("Executar Análise", type="primary", use_container_width=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -537,30 +496,21 @@ with st.sidebar:
 # ──────────────────────────────────────────────────────────────────────────────
 
 st.title("Mi7 Intelligence — Análise de Concorrentes")
-st.caption(
-    "Ferramenta interna para detecção de inflação de dados "
-    "por coletores terceiros."
-)
+st.caption("Ferramenta interna para detecção de inflação de dados por coletores terceiros.")
 
 if not arquivos_upados:
-    st.info(
-        "Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar."
-    )
+    st.info("Faça o upload de um ou mais arquivos JSON na barra lateral para iniciar.")
     st.stop()
 
 if not analisar:
-    st.info(
-        "Configure os parâmetros na barra lateral e clique em "
-        "**▶ Executar Análise**."
-    )
+    st.info("Configure os parâmetros na barra lateral e clique em **▶ Executar Análise**.")
     st.stop()
 
-# Validação de nome do concorrente
+# Validações de entrada obrigatórias
 if not nome_concorrente or not nome_concorrente.strip():
     st.error("❌ Informe o nome do concorrente alvo na barra lateral.")
     st.stop()
 
-# Validação de intervalo de datas
 if usar_filtro_data and data_inicio > data_fim:
     st.error("❌ Data de início é posterior à data final. Ajuste o filtro.")
     st.stop()
@@ -568,7 +518,6 @@ if usar_filtro_data and data_inicio > data_fim:
 # ── Carregamento e concatenação ───────────────────────────────────────────────
 with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
     try:
-        # tupla (não lista) para garantir hashability no cache
         lista_bytes = tuple(f.read() for f in arquivos_upados)
         df_bruto = carregar_multiplos_jsons(lista_bytes)
     except ValueError as exc:
@@ -577,7 +526,7 @@ with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
 
 st.success(
     f"{len(arquivos_upados)} arquivo(s) carregado(s) · "
-    f"**{len(df_bruto):,}** registros totais antes do filtro."
+    f"**{len(df_bruto):?}** registros totais antes do filtro."
 )
 
 # ── Filtro de data ────────────────────────────────────────────────────────────
@@ -585,32 +534,21 @@ df_filtrado = df_bruto.copy()
 
 if usar_filtro_data:
     col_data = next(
-        (c for c in df_filtrado.columns
-         if c.lower().strip() in ["data", "date", "datacoleta", "data_coleta"]),
+        (c for c in df_filtrado.columns if c.lower().strip() in ["data", "date", "datacoleta", "data_coleta"]),
         None,
     )
     if col_data is None:
         st.warning("⚠️ Coluna de data não encontrada no JSON. Filtro ignorado.")
     else:
-        df_filtrado[col_data] = pd.to_datetime(
-            df_filtrado[col_data], errors="coerce", dayfirst=True
-        )
-        mask = (
-            (df_filtrado[col_data].dt.date >= data_inicio) &
-            (df_filtrado[col_data].dt.date <= data_fim)
-        )
+        df_filtrado[col_data] = pd.to_datetime(df_filtrado[col_data], errors="coerce", dayfirst=True)
+        mask = (df_filtrado[col_data].dt.date >= data_inicio) & (df_filtrado[col_data].dt.date <= data_fim)
         df_filtrado = df_filtrado[mask]
 
         if df_filtrado.empty:
-            st.warning(
-                "⚠️ Nenhum registro encontrado no intervalo de datas selecionado."
-            )
+            st.warning("⚠️ Nenhum registro encontrado no intervalo de datas selecionado.")
             st.stop()
 
-        st.info(
-            f"Filtro aplicado: **{data_inicio}** até **{data_fim}** · "
-            f"**{len(df_filtrado):,}** registros restantes."
-        )
+        st.info(f"Filtro aplicado: **{data_inicio}** até **{data_fim}** · **{len(df_filtrado):?}** registros restantes.")
 
 # ── Execução da análise ───────────────────────────────────────────────────────
 with st.spinner("Executando análise competitiva…"):
@@ -625,11 +563,10 @@ st.markdown("---")
 st.subheader("Painel de Métricas")
 
 col1, col2, col3, col4, col5 = st.columns(5)
-
-col1.metric("Registros Mi7",        f"{resultado['mi7_total']:,}")
-col2.metric("Produtos Únicos Mi7",  f"{resultado['mi7_unique']:,}")
+col1.metric("Registros Mi7", f"{resultado['mi7_total']:,}")
+col2.metric("Produtos Únicos Mi7", f"{resultado['mi7_unique']:,}")
 col3.metric(f"Registros {nome_concorrente}", f"{resultado['comp_total']:,}")
-col4.metric(f"Únicos {nome_concorrente}",    f"{resultado['comp_unique']:,}")
+col4.metric(f"Únicos {nome_concorrente}", f"{resultado['comp_unique']:,}")
 col5.metric(
     "Índice de Fraude",
     f"{resultado['indice_fraude']}%",
@@ -643,8 +580,8 @@ st.subheader("Total vs. Únicos por Empresa")
 
 df_chart = pd.DataFrame({
     "Empresa": ["Mi7", "Mi7", nome_concorrente, nome_concorrente],
-    "Tipo":    ["Total", "Únicos", "Total", "Únicos"],
-    "Qtd":     [
+    "Tipo": ["Total", "Únicos", "Total", "Únicos"],
+    "Qtd": [
         resultado["mi7_total"],
         resultado["mi7_unique"],
         resultado["comp_total"],
@@ -652,18 +589,12 @@ df_chart = pd.DataFrame({
     ],
 })
 
-st.bar_chart(
-    df_chart.pivot(index="Empresa", columns="Tipo", values="Qtd"),
-    use_container_width=True,
-)
+st.bar_chart(df_chart.pivot(index="Empresa", columns="Tipo", values="Qtd"), use_container_width=True)
 
 # ── Prova do Crime ────────────────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("Top 20 Produtos Mais Repetidos")
-st.caption(
-    f"Produtos que o coletor **{nome_concorrente}** mais repetiu no período. "
-    "Alta repetição indica inflação artificial de volume."
-)
+st.caption(f"Produtos que o coletor **{nome_concorrente}** mais repetiu no período. Alta repetição indica inflação artificial de volume.")
 
 st.dataframe(
     resultado["prova"],
@@ -674,8 +605,7 @@ st.dataframe(
             "Repetições",
             format="%d",
             min_value=0,
-            max_value=int(resultado["prova"]["Repetições"].max())
-                      if not resultado["prova"].empty else 1,
+            max_value=int(resultado["prova"]["Repetições"].max()) if not resultado["prova"].empty else 1,
         )
     },
 )
