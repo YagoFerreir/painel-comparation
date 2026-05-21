@@ -214,24 +214,18 @@ def _autenticar_api(api_url: str, api_user: str, api_pass: str) -> str | None:
 
 def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
     """
-    Paginação cursor-based (RP Info): o segmento /{LastID}/ na URL define
-    o ponto de partida; a API retorna até API_PAGE_SIZE produtos com código
-    estritamente maior que LastID, ordenados crescentemente.
-
-    Inicia em "0" para pegar do começo do catálogo.
+    Versão Purificada para Produção/Apresentação.
+    Remove os prints de console que causam estouro de buffer no Streamlit.
     """
     headers = {"Content-type": "application/json", "token": token}
     todos = []
-    vistos = set()           # dedup defensivo (caso API use >= em vez de >)
+    vistos = set()
     last_id = "0"
 
-    # Fatiamento estruturado da URL antes de iniciar a paginação.
-    # Ex: http://.../listaprodutos/0/detalhado -> ['http://.../listaprodutos', 'detalhado']
     parts = api_url.split("/0/")
     usa_template = len(parts) == 2
 
     for iteracao in range(API_MAX_PAGES):
-        # Monta a URL injetando o cursor dinâmico acumulado no meio ou no final
         if usa_template:
             url_paginada = f"{parts[0]}/{last_id}/{parts[1]}"
         else:
@@ -239,22 +233,10 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
 
         try:
             resp = requests.get(url_paginada, headers=headers, timeout=API_TIMEOUT)
-        except requests.Timeout:
-            print(f"⏱️  Timeout no cursor {last_id}. Encerrando paginação.")
-            break
-        except requests.RequestException as exc:
-            print(f"🚨 Erro de rede no cursor {last_id}: {exc}")
-            break
-
-        if resp.status_code != 200:
-            print(f"⚠️  Status {resp.status_code} no cursor {last_id}. "
-                  f"Resposta: {resp.text[:200]}")
-            break
-
-        try:
+            if resp.status_code != 200:
+                break
             payload = resp.json()
-        except ValueError:
-            print(f"⚠️  Resposta não-JSON no cursor {last_id}.")
+        except Exception:
             break
 
         produtos_pagina = payload.get("produtos") \
@@ -262,36 +244,24 @@ def _baixar_catalogo_paginado(api_url: str, token: str) -> list[dict]:
         if not produtos_pagina:
             break
 
-        # Dedup defensivo: filtra registros já vistos
         novos = [p for p in produtos_pagina if p.get("codigo") not in vistos]
         for p in novos:
             vistos.add(p.get("codigo"))
         todos.extend(novos)
 
-        # Log de progresso a cada 5 lotes (para não poluir o output do Streamlit)
-        if iteracao % 5 == 0:
-            print(f"📥 Lote {iteracao + 1}: cursor={last_id} → "
-                  f"+{len(novos)} novos (total: {len(todos):,})")
-
-        # Define o próximo cursor a partir do último código do lote retornado
         codigo_raw = produtos_pagina[-1].get("codigo")
         if codigo_raw is None:
-            print("⚠️  Último produto sem 'codigo'. Encerrando.")
             break
 
         novo_last_id = str(codigo_raw)
         if novo_last_id == last_id:
-            # Cursor não avançou → API repetiu o mesmo lote
             break
         last_id = novo_last_id
 
-        # Lote parcial = última página alcançada
         if len(produtos_pagina) < API_PAGE_SIZE:
             break
 
-    print(f"✅ Catálogo carregado: {len(todos):,} produtos únicos.")
     return todos
-
 
 @st.cache_data(show_spinner="Conectando ao catálogo da API...", ttl=3600)
 def _buscar_catalogo_api() -> pd.DataFrame | None:
