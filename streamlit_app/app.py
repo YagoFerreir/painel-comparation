@@ -526,7 +526,7 @@ with st.spinner(f"Carregando {len(arquivos_upados)} arquivo(s)…"):
 
 st.success(
     f"{len(arquivos_upados)} arquivo(s) carregado(s) · "
-    f"**{len(df_bruto):?}** registros totais antes do filtro."
+    f"**{len(df_bruto):,}** registros totais antes do filtro."
 )
 
 # ── Filtro de data ────────────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ if usar_filtro_data:
             st.warning("⚠️ Nenhum registro encontrado no intervalo de datas selecionado.")
             st.stop()
 
-        st.info(f"Filtro aplicado: **{data_inicio}** até **{data_fim}** · **{len(df_filtrado):?}** registros restantes.")
+        st.info(f"Filtro aplicado: **{data_inicio}** até **{data_fim}** · **{len(df_filtrado):,}** registros restantes.")
 
 # ── Execução da análise ───────────────────────────────────────────────────────
 with st.spinner("Executando análise competitiva…"):
