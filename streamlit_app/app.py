@@ -338,7 +338,7 @@ def executar_analise(df: pd.DataFrame, concorrente: str) -> dict:
     df["source"] = df["observacao"].apply(lambda x: _classificar_origem(x, concorrente))
 
     # Limpa EANs
-   if "codigoProduto" not in df.columns:
+    if "codigoProduto" not in df.columns:
         raise ValueError(
             "Coluna 'codigoProduto' (ou equivalente) não encontrada. "
             f"Colunas disponíveis: {list(df.columns)}"
